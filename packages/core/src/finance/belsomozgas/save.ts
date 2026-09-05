@@ -98,6 +98,97 @@ export async function saveInternalTransferUseCase(
     return { success: false, error: createLock, yearFinalized: true }
   }
 
+  // ── ÖRÖKBEFOGADÁS ELŐELLENŐRZÉSE (2026-09-03, Endre 1. — P0) ──────────
+  // A rögzítő „Párosítatlan tétel átvétele" választója egy MÁR LÉTEZŐ könyvelési
+  // sort jelöl ki. Ilyenkor NEM szabad új párt gyártani (az duplikálna) — csak a
+  // hiányzó lábat hozzuk létre, és a meglévő sort ugyanazzal a kulccsal jelöljük.
+  //
+  // FAIL-CLOSED, ÉS A MESTERSOR ELŐTT: ha a célsor időközben megváltozott, itt
+  // állunk meg, amikor még SEMMI nem íródott. (Fordított sorrendben egy elbukott
+  // ellenőrzés árva mestersort hagyna maga után.)
+  let orokbe: {
+    tabla: 'befizetes' | 'kiadas'
+    id: number
+    xkey: string
+    /** Volt-e MÁR kulcsa — ha igen, azt vesszük át, és nem írunk rá újat. */
+    kulcsotIrunk: boolean
+  } | null = null
+  if (clean.parositando) {
+    const p = clean.parositando
+    const tabla = p.oldal === 'income' ? 'befizetes' : 'kiadas'
+    const { data: cel, error: celErr } = await ctx.supabase
+      .from(tabla)
+      .select('id, osszeg, osszeg_ron, datum, bankszamla_id, belso_mozgas_xkey, deleted, stornozott')
+      .eq('id', p.id)
+      .eq('congregation_id', clean.congregationId)
+      .maybeSingle()
+    if (celErr) {
+      return {
+        success: false,
+        error:
+          `A párosítandó tétel ellenőrzése nem sikerült (${celErr.message}) — ezért NEM mentettünk ` +
+          'semmit. Próbáld újra; ha ismétlődik, rögzítsd a tételt párosítás nélkül.',
+      }
+    }
+    if (!cel) {
+      return {
+        success: false,
+        error:
+          'A párosítandó tétel már nem található (időközben törölhették, vagy másik gyülekezeté). ' +
+          'Frissítsd a Pénzügy oldalt, és válaszd ki újra.',
+      }
+    }
+    const c = cel as {
+      id: number
+      osszeg: number | null
+      osszeg_ron: number | null
+      datum: string | null
+      bankszamla_id: number | null
+      belso_mozgas_xkey: string | null
+      deleted: boolean | null
+      stornozott: boolean | null
+    }
+    if (c.deleted || c.stornozott) {
+      return {
+        success: false,
+        error:
+          'A párosítandó tételt időközben törölték vagy sztornózták — NEM mentettünk semmit. ' +
+          'Frissítsd a Pénzügy oldalt, és válaszd ki újra.',
+      }
+    }
+    // Az összegnek CENTRE egyeznie kell — különben nem ugyanarról a pénzről van szó.
+    const celCent = Math.round(Number(c.osszeg ?? 0) * 100)
+    const ujCent = Math.round(clean.osszeg * 100)
+    if (celCent !== ujCent) {
+      return {
+        success: false,
+        error:
+          `A párosítandó tétel összege ${(celCent / 100).toFixed(2)}, a rögzített soré ` +
+          `${(ujCent / 100).toFixed(2)} — nem ugyanaz a pénz. Javítsd az összeget, vagy válassz másik tételt.`,
+      }
+    }
+    // HELYSZÍN-ŐR: a meglévő sornak azon az oldalon kell állnia, ahová a TÍPUS teszi.
+    // Letétnél (kassza→bank) a BEFIZETÉS a bankon, a KIADÁS a kasszában van; felvétnél fordítva.
+    const letet = clean.tipus === 'kassza_bank'
+    const varhatoBank =
+      p.oldal === 'income' ? (letet ? clean.bankszamlaId ?? null : null) : letet ? null : clean.bankszamlaId ?? null
+    if ((c.bankszamla_id ?? null) !== (varhatoBank ?? null)) {
+      return {
+        success: false,
+        error:
+          'A párosítandó tétel nem azon az oldalon áll, ahová ez az átvezetés tenné ' +
+          `(${c.bankszamla_id == null ? 'kasszában' : 'bankszámlán'} van). Ellenőrizd az irányt és a bankszámlát, ` +
+          'vagy válassz másik tételt.',
+      }
+    }
+    orokbe = {
+      tabla,
+      id: c.id,
+      xkey: c.belso_mozgas_xkey || ujBelsoMozgasXkey(),
+      kulcsotIrunk: !c.belso_mozgas_xkey,
+    }
+  }
+
   try {
     const { data, error } = await ctx.supabase
       .from('belsomozgas')
@@ -151,100 +242,143 @@ export async function saveInternalTransferUseCase(
         }
       }
 
-      const pairXkey = ujBelsoMozgasXkey()
+      // 2026-09-03 (P0): örökbefogadásnál a MEGLÉVŐ sor kulcsát visszük tovább,
+      // és azt a lábat NEM szúrjuk be újra — különben ugyanarra a pénzre két
+      // könyvelési sor keletkezne (ez volt a duplikálás gyökere).
+      const pairXkey = orokbe ? orokbe.xkey : ujBelsoMozgasXkey()
+      const kellBef = !(orokbe && orokbe.tabla === 'befizetes')
+      const kellKia = !(orokbe && orokbe.tabla === 'kiadas')
       const iratszam = `BM-${clean.datum.replace(/-/g, '')}-${String(data.id)}`
       const fizetettev = Number(clean.datum.slice(0, 4))
       // Letétnél a BANK kap és a KASSZA ad; felvételnél fordítva.
       const bevBankId = isDeposit ? clean.bankszamlaId : null
       const kiaBankId = isDeposit ? null : clean.bankszamlaId
 
-      const befIns = await ctx.supabase.from('befizetes').insert([{
-        osszeg: clean.osszeg, osszeg_ron: clean.osszeg, arfolyam: 1,
-        datum: clean.datum,
-        id_befizetescel: bevCelId,
-        id_szemely: null, id_csalad: null, csalad: false,
-        forrasa: isDeposit ? 'Belső mozgás — kasszából' : 'Belső mozgás — bankból',
-        iratszam, nyugta: iratszam,
-        irattipus: bevBankId === null ? 'Készpénz' : 'banki',
-        bankszamla_id: bevBankId,
-        belso_mozgas_xkey: pairXkey,
-        megjegyzes: clean.megjegyzes || null,
-        deleted: false, congregation_id: clean.congregationId,
-        fizetettev, is_potlas: false,
-        xkey: ujXkey20(), userid: ctx.userId,
-      }])
-      if (befIns.error) {
-        // P0-7 (audit 2026-08-28): kompenzáció — ne maradjon árva mester-sor.
-        // A visszavonás EREDMÉNYE ellenőrzött; kettős hibánál kimondjuk.
-        const mesterVissza = await ctx.supabase
-          .from('belsomozgas')
-          .update({ deleted: true })
-          .eq('id', data.id)
-          .eq('congregation_id', clean.congregationId)
-          .select('id')
-        if (mesterVissza.error || !mesterVissza.data?.length) {
+      let befUjId: number | null = null
+      if (kellBef) {
+        const befIns = await ctx.supabase.from('befizetes').insert([{
+          osszeg: clean.osszeg, osszeg_ron: clean.osszeg, arfolyam: 1,
+          datum: clean.datum,
+          id_befizetescel: bevCelId,
+          id_szemely: null, id_csalad: null, csalad: false,
+          forrasa: isDeposit ? 'Belső mozgás — kasszából' : 'Belső mozgás — bankból',
+          iratszam, nyugta: iratszam,
+          irattipus: bevBankId === null ? 'Készpénz' : 'banki',
+          bankszamla_id: bevBankId,
+          belso_mozgas_xkey: pairXkey,
+          megjegyzes: clean.megjegyzes || null,
+          deleted: false, congregation_id: clean.congregationId,
+          fizetettev, is_potlas: false,
+          xkey: ujXkey20(), userid: ctx.userId,
+        }]).select('id')
+        if (befIns.error) {
+          // P0-7 (audit 2026-08-28): kompenzáció — ne maradjon árva mester-sor.
+          // A visszavonás EREDMÉNYE ellenőrzött; kettős hibánál kimondjuk.
+          const mesterVissza = await ctx.supabase
+            .from('belsomozgas')
+            .update({ deleted: true })
+            .eq('id', data.id)
+            .eq('congregation_id', clean.congregationId)
+            .select('id')
+          if (mesterVissza.error || !mesterVissza.data?.length) {
+            return {
+              success: false,
+              error:
+                `A könyvelési bevétel-sor nem jött létre (${befIns.error.message}), és a nyilvántartó ` +
+                'sor visszavonása sem sikerült — a Belső mozgások listában maradt egy pár nélküli sor. ' +
+                'Töröld kézzel, majd rögzítsd újra az átvezetést.',
+            }
+          }
           return {
             success: false,
             error:
-              `A könyvelési bevétel-sor nem jött létre (${befIns.error.message}), és a nyilvántartó ` +
-              'sor visszavonása sem sikerült — a Belső mozgások listában maradt egy pár nélküli sor. ' +
-              'Töröld kézzel, majd rögzítsd újra az átvezetést.',
+              `A könyvelési bevétel-sor nem jött létre (${befIns.error.message}) — az átvezetés ` +
+              'teljes egészében visszavonva, a könyvben semmi nem mozdult. Rögzítsd újra.',
           }
         }
-        return {
-          success: false,
-          error:
-            `A könyvelési bevétel-sor nem jött létre (${befIns.error.message}) — az átvezetés ` +
-            'teljes egészében visszavonva, a könyvben semmi nem mozdult. Rögzítsd újra.',
+        befUjId = Number((befIns.data as Array<{ id: number }> | null)?.[0]?.id) || null
+      }
+      if (kellKia) {
+        const kiaIns = await ctx.supabase.from('kiadas').insert([{
+          osszeg: clean.osszeg, osszeg_ron: clean.osszeg, arfolyam: 1,
+          datum: clean.datum,
+          id_kiadascel: kiaCelId,
+          atvevo: isDeposit ? 'Belső mozgás — bankba' : 'Belső mozgás — kasszába',
+          atvevoid: null,
+          iratszam, nyugta: iratszam,
+          irattipus: kiaBankId === null ? 'Készpénz' : 'banki',
+          bankszamla_id: kiaBankId,
+          belso_mozgas_xkey: pairXkey,
+          megjegyzes: clean.megjegyzes || null,
+          deleted: false, congregation_id: clean.congregationId,
+          xkey: ujXkey20(), userid: ctx.userId,
+        }])
+        if (kiaIns.error) {
+          // P0-7 (audit 2026-08-28): kompenzáció — a bevétel-láb ÉS a mester
+          // visszavonása, ellenőrzött eredménnyel. Így nem marad féloldalas könyv.
+          //
+          // ⚠️ 2026-09-03: a visszavonás CSAK az ÁLTALUNK beszúrt sorra mehet.
+          // Örökbefogadásnál a `pairXkey` a MEGLÉVŐ (idegen) soron is rajta van —
+          // kulcs szerint törölni azt is elvinné, vagyis egy sikertelen mentés
+          // kitörölné a lelkész korábbi, érvényes tételét.
+          let rendben = true
+          if (befUjId != null) {
+            const befVissza = await ctx.supabase
+              .from('befizetes')
+              .update({ deleted: true })
+              .eq('id', befUjId)
+              .eq('congregation_id', clean.congregationId)
+              .select('id')
+            if (befVissza.error || !befVissza.data?.length) rendben = false
+          }
+          const mesterVissza = await ctx.supabase
+            .from('belsomozgas')
+            .update({ deleted: true })
+            .eq('id', data.id)
+            .eq('congregation_id', clean.congregationId)
+            .select('id')
+          if (mesterVissza.error || !mesterVissza.data?.length) rendben = false
+          if (!rendben) {
+            return {
+              success: false,
+              error:
+                `A könyvelési kiadás-sor nem jött létre (${kiaIns.error.message}), és a visszavonás ` +
+                'sem teljes — FÉLOLDALAS átvezetés maradhatott. Nézd meg a Pénzügy oldalt ' +
+                '(párosítatlan-jelzés), és jelezd a rendszergazdának.',
+            }
+          }
+          return {
+            success: false,
+            error:
+              `A könyvelési kiadás-sor nem jött létre (${kiaIns.error.message}) — az átvezetés ` +
+              'teljes egészében visszavonva, a könyvben semmi nem mozdult. Rögzítsd újra.',
+          }
         }
       }
 
-      const kiaIns = await ctx.supabase.from('kiadas').insert([{
-        osszeg: clean.osszeg, osszeg_ron: clean.osszeg, arfolyam: 1,
-        datum: clean.datum,
-        id_kiadascel: kiaCelId,
-        atvevo: isDeposit ? 'Belső mozgás — bankba' : 'Belső mozgás — kasszába',
-        atvevoid: null,
-        iratszam, nyugta: iratszam,
-        irattipus: kiaBankId === null ? 'Készpénz' : 'banki',
-        bankszamla_id: kiaBankId,
-        belso_mozgas_xkey: pairXkey,
-        megjegyzes: clean.megjegyzes || null,
-        deleted: false, congregation_id: clean.congregationId,
-        xkey: ujXkey20(), userid: ctx.userId,
-      }])
-      if (kiaIns.error) {
-        // P0-7 (audit 2026-08-28): kompenzáció — a bevétel-láb ÉS a mester
-        // visszavonása, ellenőrzött eredménnyel. Így nem marad féloldalas könyv.
-        let rendben = true
-        const befVissza = await ctx.supabase
-          .from('befizetes')
-          .update({ deleted: true })
-          .eq('belso_mozgas_xkey', pairXkey)
+      // ── AZ ÖRÖKBEFOGADOTT SOR MEGJELÖLÉSE (2026-09-03, P0) ──────────────
+      // A hiányzó láb megvan; most a MEGLÉVŐ sorra írjuk rá a közös kulcsot,
+      // hogy a pár eredete visszakövethető legyen. FAIL-LOUD: ha nem sikerül,
+      // a könyv attól még HELYES (a két láb összege/dátuma párosítja őket), de
+      // a lelkésznek tudnia kell, hogy a jelölés elmaradt.
+      if (orokbe && orokbe.kulcsotIrunk) {
+        const jeloles = await ctx.supabase
+          .from(orokbe.tabla)
+          .update({ belso_mozgas_xkey: pairXkey })
+          .eq('id', orokbe.id)
           .eq('congregation_id', clean.congregationId)
+          .is('belso_mozgas_xkey', null)
           .select('id')
-        if (befVissza.error || !befVissza.data?.length) rendben = false
-        const mesterVissza = await ctx.supabase
-          .from('belsomozgas')
-          .update({ deleted: true })
-          .eq('id', data.id)
-          .eq('congregation_id', clean.congregationId)
-          .select('id')
-        if (mesterVissza.error || !mesterVissza.data?.length) rendben = false
-        if (!rendben) {
+        if (jeloles.error || !jeloles.data?.length) {
           return {
-            success: false,
-            error:
-              `A könyvelési kiadás-sor nem jött létre (${kiaIns.error.message}), és a visszavonás ` +
-              'sem teljes — FÉLOLDALAS átvezetés maradhatott. Nézd meg a Pénzügy oldalt ' +
-              '(párosítatlan-jelzés), és jelezd a rendszergazdának.',
+            success: true,
+            data: { id: Number(data.id) },
+            figyelmeztetes:
+              'Az átvezetés hiányzó oldala elkészült, és a pár összeáll — de a korábbi tételre ' +
+              'a párosító jelölést nem sikerült ráírni' +
+              (jeloles.error ? ` (${jeloles.error.message})` : ' (időközben megváltozott)') +
+              '. A könyv helyes; ha a párosítatlan-jelzés mégis megmarad, frissítsd az oldalt.',
           }
-        }
-        return {
-          success: false,
-          error:
-            `A könyvelési kiadás-sor nem jött létre (${kiaIns.error.message}) — az átvezetés ` +
-            'teljes egészében visszavonva, a könyvben semmi nem mozdult. Rögzítsd újra.',
         }
       }
     }

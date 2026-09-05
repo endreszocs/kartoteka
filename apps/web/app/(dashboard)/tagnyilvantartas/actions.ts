@@ -4,6 +4,7 @@ import { createClient } from '@/lib/supabase/server'
 import { revalidatePath } from 'next/cache'
 import { memberSchema, removeSchema, type MemberInput, type RemoveInput } from '@/lib/validations/members'
 import { generateCnp, guessGender } from '@/lib/utils/member-helpers'
+import { valodiCnpGyanus } from '@/lib/members/szemelyi-szam'
 import { logAuditEvent } from '@/lib/audit/log'
 import type { MemberRow, EnrichedMember } from '@/lib/constants/members'
 import { getEffectiveCongregationContext } from '@/lib/auth/effective-access'
@@ -793,6 +794,26 @@ function szemelyMentesHibaUzenet(
   return `Hiba: ${error.message}`
 }
 
+/**
+ * 2026-09-05 — A VALÓDI SZEMÉLYI SZÁM NEM KERÜLHET AZ EGYHÁZI AZONOSÍTÓBA.
+ *
+ * A `szemely.cnp` a rendszer belső azonosítója, és három csatornán terjed:
+ * a TELJES taglistával utazik (a lista-lekérdezés kiválasztja, sőt a
+ * szabadszavas keresés is rá épül), a `szemely` audit-triggere a TELJES sort
+ * másolja a rendszerszintű `audit_log`-ba minden módosításkor, a
+ * kereszt-gyülekezeti policy pedig idegen gyülekezet lelkészének is kiadja a
+ * sort. Állami azonosítónak ott nincs helye.
+ *
+ * Az élő mérés szerint MA egyetlen valódi CNP sincs a `cnp`-ben — ez a kapu
+ * tartja is így. A hivatalos szám helye a `szemely_szemelyi_szam` tábla, amit
+ * a személyi kartonon lehet kitölteni.
+ */
+const VALODI_CNP_UZENET =
+  'Ez érvényes romániai személyi számnak (CNP) látszik, ezért NEM menthető az „Egyházi azonosító" mezőbe. ' +
+  'Az egyházi azonosító a rendszer belső kódja — a taglistával együtt utazik, és a változás-naplóba is bekerül, ' +
+  'ezért állami azonosító nem kerülhet bele. A hivatalos személyi számot a személyi kartonon, a „Személyi szám (CNP)" ' +
+  'mezőben mentsd el: az csak a saját gyülekezetedben látszik, és minden megtekintése naplózódik.'
+
 export async function saveMember(data: MemberInput) {
   const parsed = memberSchema.safeParse(data)
   if (!parsed.success) return { error: parsed.error.issues[0].message }
@@ -908,6 +929,7 @@ export async function saveMember(data: MemberInput) {
     // (id_apja/id_anyja) mutathatnak, fölösleges kockázatot nem vállalunk.
     const prevCnp = (prevNames as { cnp: string | null } | null)?.cnp ?? null
     const ujCnp = d.cnp?.trim() || ''
+    if (ujCnp && valodiCnpGyanus(ujCnp)) return { error: VALODI_CNP_UZENET }
     if (ujCnp && ujCnp !== prevCnp) memberData.cnp = ujCnp
 
     let updateError = (
@@ -957,7 +979,9 @@ export async function saveMember(data: MemberInput) {
     // 2026-08-25 (CNP kézi bevitel): ha a lelkész megadott személyi számot, az
     // kerül tárolásra; üresen hagyva marad a mai út — a rendszer generál
     // egyházi azonosítót.
-    memberData.cnp = d.cnp?.trim() || generateCnp()
+    const ujCnpInsert = d.cnp?.trim() || ''
+    if (ujCnpInsert && valodiCnpGyanus(ujCnpInsert)) return { error: VALODI_CNP_UZENET }
+    memberData.cnp = ujCnpInsert || generateCnp()
     memberData.congregation_id = congregationId
     memberData.isvisible = true
     memberData.type = 'E'

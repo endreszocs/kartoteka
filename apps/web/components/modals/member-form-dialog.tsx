@@ -632,8 +632,11 @@ export function MemberFormDialog({ open, onOpenChange, editMember, onDataChanged
                     mentés sosem nulláz). */}
                 <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-2">
                   <div className="space-y-1.5">
+                    {/* 2026-09-05: a címke ŐSZINTE. Ez a mező a rendszer
+                        egyházi azonosítója — a HIVATALOS személyi szám a
+                        személyi kartonon, külön mezőben rögzíthető. */}
                     <Label htmlFor="member-cnp">
-                      Személyi szám (CNP)
+                      Egyházi azonosító
                       {editMember?.cnp && !(cnpWatch || '').trim() ? (
                         <span className="ml-1.5 text-xs font-normal text-muted-foreground">(változatlan)</span>
                       ) : null}
@@ -644,8 +647,8 @@ export function MemberFormDialog({ open, onOpenChange, editMember, onDataChanged
                         <button
                           type="button"
                           onClick={() => setCnpSzerkesztes(true)}
-                          aria-label="Személyi szám szerkesztése"
-                          title="Személyi szám szerkesztése"
+                          aria-label="Egyházi azonosító szerkesztése"
+                          title="Egyházi azonosító szerkesztése"
                           className="inline-flex size-9 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-slate-100 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring dark:hover:bg-slate-800"
                         >
                           <Pencil className="size-4" aria-hidden />

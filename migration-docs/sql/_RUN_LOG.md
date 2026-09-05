@@ -43,9 +43,12 @@ Futtatási SORREND (mind idempotens, a végén EGY ellenőrző rács — csak az
        (működik), de az új feladó-adatok nem tárolódnak; a hírlevél formázása a régi
        sorokon a cím alapján ismerődik fel.
 
-- [ ] `2026-09-05-profil-pontossag.sql` — PENDING (ha a profil-ügynök elkészíti)
-       Indok: `pastor_profiles.avatar_source` + a régi szöveges szolgálati helyek egyszeri
-       átemelése a strukturált táblába.
+- [ ] `2026-09-05-profil-pontossag.sql` — PENDING
+       Indok: `pastor_profiles.avatar_source` (a profilkép forrása: feltöltött / Google) + a
+       régi szöveges szolgálati helyek egyszeri átemelése a strukturált `pastor_service_history`
+       táblába + a sürgősségi telefonba tévedésből beírt SAJÁT telefonszámok takarítása.
+       Enélkül: a profil-dialógus Google-fotó/feltöltött kép választása nem tárolódik (a régi
+       photo_url-logika marad), a Szolgálat fül a legacy szöveget mutatja.
 
 ---
 
@@ -745,3 +748,4 @@ Eddig nem volt katasztrofális PITR-rollback. Ha jövőben szükség lesz, ide j
 - **DIAGNOSTICS P2-9 + P2-10**: a _RUN_LOG.md hiánya és pending SQL-ek
 - **DIAGNOSTICS P2-11**: SECURITY DEFINER search_path → `2026-05-17-security-definer-search-path-pin.sql`
 - **DIAGNOSTICS P2-12**: a RPC-installer migrációk BEGIN/COMMIT csomagolása — új migrációknál betartani
+- [ ] 2026-09-05-szemelyi-szam-kulon-tabla.sql — PENDING (a hivatalos személyi szám külön, szűkebb hozzáférésű táblába kerül; a szemely.cnp ÉRINTETLEN marad)

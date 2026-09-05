@@ -116,6 +116,12 @@ export interface SzamlaDuplikatumJelzes {
    * pótolta (ön-gyógyító újrafeldolgozás) — nem jött létre új sor.
    */
   fajlPotolva: boolean
+  /**
+   * 2026-09-04: a találat a RÉGI (2026-09-04 előtti, első-futam) kulccsal
+   * rögzített sor. Nem hiba — de a lelkész lássa, hogy a fájl azonosítója
+   * azóta pontosabb lett, és a régi sor a régi kulcsán marad.
+   */
+  regiKulcs?: boolean
 }
 
 /** A feldolgozSzamlaZipDokumentum action összegzése — a UI ezt mutatja meg. */

@@ -972,6 +972,12 @@ export async function applyGooglePhoto(): Promise<ProfilePhotoResult> {
 export async function updatePassword(newPassword: string): Promise<{
   success?: boolean
   error?: string
+  /**
+   * A jelszó MEGVÁLTOZOTT, de egy kísérő lépés nem sikerült (ma: a többi
+   * munkamenet visszavonása). Nem hiba — a művelet sikeres —, de a
+   * felhasználónak látnia kell, mert épp a biztonsági hatás maradt el.
+   */
+  warning?: string
 }> {
   if (!newPassword || newPassword.length < 8) {
     return { error: 'A jelszó legalább 8 karakter hosszú legyen.' }
@@ -988,6 +994,26 @@ export async function updatePassword(newPassword: string): Promise<{
 
   const { error } = await supabase.auth.updateUser({ password: newPassword })
   if (error) return { error: `A jelszó frissítése nem sikerült: ${error.message}` }
+
+  // A TÖBBI MUNKAMENET VISSZAVONÁSA (2026-09-04, P1) — a teljes indoklás az
+  // `app/(auth)/forgot-password/actions.ts` azonos blokkjában áll. Röviden: a
+  // jelszóváltás eddig egyetlen munkamenetet sem vont vissza, a munkameneteknek
+  // pedig nincs abszolút lejáratuk (a 2026-09-04-i mérés szerint a legrégebbi
+  // élő munkamenet 122 napos). Az `others` a MOSTANIT meghagyja, hogy a
+  // felhasználó ne essen ki abból az oldalból, ahol épp jelszót változtatott.
+  const { error: kileptetesHiba } = await supabase.auth.signOut({ scope: 'others' })
+  if (kileptetesHiba) {
+    console.error(
+      '[profile] A többi munkamenet visszavonása nem sikerült:',
+      kileptetesHiba.message,
+    )
+    return {
+      success: true,
+      warning:
+        'A jelszó megváltozott, de a többi eszközön lévő bejelentkezéseket most nem sikerült ' +
+        'megszüntetni. Ha attól tart, hogy valaki hozzáfért a fiókjához, jelezze a rendszergazdának.',
+    }
+  }
 
   return { success: true }
 }

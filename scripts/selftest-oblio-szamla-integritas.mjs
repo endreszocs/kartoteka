@@ -41,7 +41,11 @@ const ACTIONS = path.join(REPO, 'apps', 'web', 'app', '(dashboard)', 'penzugy', 
 const DIALOG = path.join(REPO, 'apps', 'web', 'components', 'modals', 'oblio-issue-invoice-dialog.tsx')
 const SZAMLA = path.join(REPO, 'apps', 'web', 'app', '(dashboard)', 'dokumentumtar', 'szamla-actions.ts')
 const LISTA = path.join(REPO, 'apps', 'web', 'components', 'dokumentumtar', 'szamla-egyeztetes-main.tsx')
-const IV = path.join(REPO, 'apps', 'web', 'app', '(dashboard)', 'dokumentumtar', 'szamla', '[id]', 'page.tsx')
+// 2026-09-04 (Endre 3.): a nyomtatott adatlap HTML-je KÖZÖS építőbe és betöltőbe
+// költözött (a szamla/[id] lap és az előnézet-dialógus ugyanazt hívja). A sztornó-
+// jelölés és az „élő párokból Könyvelve" logika ITT él — az őr ide céloz.
+const BUILDER = path.join(REPO, 'apps', 'web', 'lib', 'dokumentumtar', 'szamla-nyomtatvany.ts')
+const LOADER = path.join(REPO, 'apps', 'web', 'lib', 'dokumentumtar', 'szamla-nyomtatvany-load.ts')
 const STORNO = path.join(REPO, 'apps', 'web', 'app', '(dashboard)', 'penzugy', 'edit-storno-actions.ts')
 
 let failed = false
@@ -52,7 +56,7 @@ const CR = String.fromCharCode(13)
 const olvas = (f) => fs.readFileSync(f, 'utf8').split(CR).join('')
 const kodCsak = (s) => s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '')
 
-for (const f of [ACTIONS, DIALOG, SZAMLA, LISTA, IV, STORNO]) {
+for (const f of [ACTIONS, DIALOG, SZAMLA, LISTA, BUILDER, LOADER, STORNO]) {
   if (!fs.existsSync(f)) fail(`hiányzó fájl: ${path.relative(REPO, f)}`)
 }
 if (failed) { console.error('\nA számla-integritás önellenőrzés ELBUKOTT.'); process.exit(1) }
@@ -154,13 +158,19 @@ orzo(
 )
 orzo(
   '(2) a NYOMTATOTT adatlap megjelöli a sztornózott tételt',
-  olvas(IV),
+  olvas(BUILDER),
   /p\.ervenytelen[\s\S]{0,300}?sztornózott/,
-  (s) => s.replace(/sztornózott\n/g, 'rendben\n'),
+  (s) => s.replace(/\(sztornózott\)/g, '').replace(/p\.ervenytelen \? 'dead' : ''/g, "''"),
+)
+orzo(
+  '(2) a betöltő a törölt ÉS a sztornózott kiadást is érvénytelennek jelöli',
+  olvas(LOADER),
+  /ervenytelen: !!k\.kiadas\.deleted \|\| !!k\.kiadas\.stornozott/,
+  (s) => s.replace(/ervenytelen: !!k\.kiadas\.deleted \|\| !!k\.kiadas\.stornozott/g, 'ervenytelen: false'),
 )
 orzo(
   '(2) a „Könyvelve" állítás csak ÉLŐ párokból származik',
-  olvas(IV),
+  olvas(BUILDER),
   /eloParok\.length > 0[\s\S]{0,80}?Könyvelve/,
   (s) => s.replace(/eloParok\.length > 0/g, 'parok.length > 0'),
 )

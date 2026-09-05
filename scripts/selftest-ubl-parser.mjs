@@ -71,7 +71,7 @@ try {
   process.exit(1)
 }
 
-const { parseUblSzamla, anafUuidFajlnevbol, fajlnevGyoker, azonositoSzamlaIdentitasbol } = mod
+const { parseUblSzamla, parseUblSzamlaReszletek, anafUuidFajlnevbol, anafUuidFajlnevbolElso, fajlnevGyoker, azonositoSzamlaIdentitasbol } = mod
 if (typeof parseUblSzamla !== 'function') {
   fail('parseUblSzamla nem exportált függvény')
   process.exit(1)
@@ -297,6 +297,77 @@ const jovairo = `<?xml version="1.0"?>
   expect(`7. fajlnevGyoker('semnatura_5884883600.xml')`, fajlnevGyoker('semnatura_5884883600.xml'), '5884883600')
   expect(`7. fajlnevGyoker('Factura_RO123.pdf')`, fajlnevGyoker('Factura_RO123.pdf'), 'factura_ro123')
   expect(`7. fajlnevGyoker('5884883600.xml.zip')`, fajlnevGyoker('5884883600.xml.zip'), '5884883600')
+
+  // ── 2026-09-04 (VALÓDI ANAF SPV-exporton mérve): az UTOLSÓ futam az index ──
+  // Az ANAF neve `<CÉG>_<SOROZAT>_<INDEX>.xml`. Ha a SOROZAT is 8+ jegyű, az
+  // ELSŐ futam a szállító számlaszáma — nem ANAF-index, és eltér a PDF-párosító
+  // (utolsó rész) kulcsától. 14-ből 6 fájlnál ez volt a helyzet.
+  expect(`7. UTOLSÓ futam — LIDL (a sorozat is 13 jegyű)`,
+    anafUuidFajlnevbol('LIDLDiscountSRL_1038726021242_6295867593.xml'), '6295867593')
+  expect(`7. UTOLSÓ futam — Electrica (EFI + 10 jegy a sorozatban)`,
+    anafUuidFajlnevbol('SOCIETATEAELECTRICAFURNIZARESA_EFI2613512321_6245906283.xml'), '6245906283')
+  expect(`7. egyfutamos név változatlan`,
+    anafUuidFajlnevbol('MINDELECTROSERVSRL_MSV2786_6416663635.xml'), '6416663635')
+  // A RÉGI kulcsképzés (első futam) CSAK a duplikátum-keresés régi ágához él tovább.
+  expect(`7. RÉGI kulcs (első futam) — LIDL`,
+    anafUuidFajlnevbolElso('LIDLDiscountSRL_1038726021242_6295867593.xml'), '1038726021242')
+  expect(`7. RÉGI kulcs (első futam) — Electrica`,
+    anafUuidFajlnevbolElso('SOCIETATEAELECTRICAFURNIZARESA_EFI2613512321_6245906283.xml'), '2613512321')
+  expect(`7. RÉGI kulcs sincs csupasz visszaesés`, anafUuidFajlnevbolElso('factura.xml'), null)
+}
+
+// ── 8. SZTORNÓ MINT NEGATÍV `Invoice` (2026-09-04, valódi ANAF-exporton mérve) ──
+// A román kiállító a sztornót `InvoiceTypeCode 380`-as Invoice-ként adja NEGATÍV
+// tételekkel + BillingReference-szel. A gyökér-elem HAZUDIK a szerepről: e nélkül
+// a −22 010-es sztornó +22 010-es MÁSODIK tartozásként rögzült (Math.abs).
+const sztorno = `<?xml version="1.0" encoding="UTF-8"?>
+<Invoice xmlns="urn:oasis:names:specification:ubl:schema:xsd:Invoice-2"
+  xmlns:cac="urn:oasis:names:specification:ubl:schema:xsd:CommonAggregateComponents-2"
+  xmlns:cbc="urn:oasis:names:specification:ubl:schema:xsd:CommonBasicComponents-2">
+  <cbc:ID>MSV2785</cbc:ID>
+  <cbc:IssueDate>2026-05-27</cbc:IssueDate>
+  <cbc:InvoiceTypeCode>380</cbc:InvoiceTypeCode>
+  <cbc:DocumentCurrencyCode>RON</cbc:DocumentCurrencyCode>
+  <cac:BillingReference><cac:InvoiceDocumentReference><cbc:ID>MSV2763</cbc:ID></cac:InvoiceDocumentReference></cac:BillingReference>
+  <cac:AccountingSupplierParty><cac:Party>
+    <cac:PartyTaxScheme><cbc:CompanyID>RO31998092</cbc:CompanyID></cac:PartyTaxScheme>
+    <cac:PartyLegalEntity>
+      <cbc:RegistrationName>MIND ELECTROSERV S.R.L.</cbc:RegistrationName>
+      <cbc:CompanyID>J14/145/2013</cbc:CompanyID>
+      <cbc:CompanyLegalForm>Capital social: 200 LEI</cbc:CompanyLegalForm>
+    </cac:PartyLegalEntity>
+  </cac:Party></cac:AccountingSupplierParty>
+  <cac:LegalMonetaryTotal><cbc:PayableAmount currencyID="RON">-22010.00</cbc:PayableAmount></cac:LegalMonetaryTotal>
+  <cac:InvoiceLine>
+    <cbc:ID>1</cbc:ID>
+    <cbc:InvoicedQuantity unitCode="H87">-1</cbc:InvoicedQuantity>
+    <cbc:LineExtensionAmount currencyID="RON">-18190.08</cbc:LineExtensionAmount>
+    <cac:Item><cbc:Name>Avans conform contract nr. 47</cbc:Name>
+      <cac:ClassifiedTaxCategory><cbc:ID>S</cbc:ID><cbc:Percent>21</cbc:Percent></cac:ClassifiedTaxCategory></cac:Item>
+    <cac:Price><cbc:PriceAmount currencyID="RON">18190.0826</cbc:PriceAmount></cac:Price>
+  </cac:InvoiceLine>
+</Invoice>`
+{
+  const m = parseUblSzamla(sztorno, '6375281734')
+  expect('8. negatív Invoice → tipus jóváíró (a gyökér hazudik)', m.tipus, 'jovairo')
+  expect('8. negatív Invoice → elojel −1', m.elojel, -1)
+  expect('8. a végösszeg ELŐJELESEN marad meg', m.vegosszeg, -22010)
+  expect('8. a hivatkozott EREDETI számla kijön (BillingReference)', m.hivatkozottSzamla, 'MSV2763')
+
+  // Részletes kinyerés: sortétel attribútumokkal + cégjegyzékszám a HELYES elemből.
+  const r = parseUblSzamlaReszletek(sztorno, '6375281734')
+  expect('8. sortétel darab', r.tetelek.length, 1)
+  expect('8. mértékegység az unitCode ATTRIBÚTUMBÓL', r.tetelek[0].mertekegyseg, 'H87')
+  expect('8. tétel pénzneme a currencyID-ból', r.tetelek[0].penznem, 'RON')
+  expect('8. egységár a Price/PriceAmount-ból (nem a LineExtensionAmount)', r.tetelek[0].egysegar, 18190.0826)
+  expect('8. cégjegyzékszám a PartyLegalEntity/CompanyID-ból', r.szallito.cegjegyzek, 'J14/145/2013')
+  expect('8. a CUI NEM a J-szám (a PartyTaxScheme győz)', r.szallito.cui, 'RO31998092')
+  // NEGATÍV: a „Capital social" szöveg NEM cégjegyzékszám — ha nincs J-szám, null.
+  const capitalCsak = sztorno.replace('<cbc:CompanyID>J14/145/2013</cbc:CompanyID>', '')
+  expect('8. „Capital social: …" NEM kerül Reg. com.-ba (null)', parseUblSzamlaReszletek(capitalCsak).szallito.cegjegyzek, null)
+  // NEGATÍV: pozitív Invoice marad számla.
+  const pozitiv = sztorno.replace('-22010.00', '22010.00').replace('>-1<', '>1<').replace('-18190.08', '18190.08')
+  expect('8. pozitív Invoice → tipus számla (a szabály nem túllő)', parseUblSzamla(pozitiv).tipus, 'szamla')
 }
 
 // ── 8. Robusztusság: DOCTYPE + komment + '>' az attribútum-értékben ─────────

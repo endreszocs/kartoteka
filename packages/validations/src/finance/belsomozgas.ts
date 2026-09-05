@@ -101,6 +101,29 @@ export const saveInternalTransferInputSchema = z
      * bevétel a cél-bankon, 402.02), RON↔RON számlapárnál.
      */
     celBankszamlaId: z.number().int().positive().optional().nullable(),
+    /**
+     * 2026-09-03 (Endre 1., P0-javítás): ÖRÖKBEFOGADÁS — a rögzítő „Párosítatlan
+     * tétel átvétele" választójával kijelölt, MÁR LÉTEZŐ könyvelési sor.
+     *
+     * ⛔ MIÉRT KELL. E nélkül az „átvétel" nem párosított, hanem DUPLIKÁLT: a
+     * use-case friss `belso_mozgas_xkey`-jel MINDKÉT lábat újra beszúrta, a
+     * kiválasztott árva sor pedig érintetlen maradt — ugyanarra a pénzre két
+     * könyvelési sor keletkezett, a figyelmeztetés viszont nem tűnt el (most a
+     * régi árva maradt pár nélkül), ami a lelkészt ÚJABB átvételre csábította.
+     *
+     * Ha meg van adva, a use-case CSAK A HIÁNYZÓ LÁBAT hozza létre, és a meglévő
+     * sort ugyanazzal a párosító kulccsal jelöli meg.
+     *
+     * `oldal` = a MEGLÉVŐ sor oldala ('income' = befizetes, 'expense' = kiadas);
+     * a use-case ennek az ELLENTÉTÉT szúrja be.
+     */
+    parositando: z
+      .object({
+        oldal: z.enum(['income', 'expense']),
+        id: z.number().int().positive(),
+      })
+      .optional()
+      .nullable(),
   })
   .refine((d) => d.datum <= today(), {
     message: 'Jövőbeli dátum nem engedélyezett',

@@ -80,6 +80,8 @@ import { ageFromDate } from '@/lib/utils/date'
 import type { EnrichedMember } from '@/lib/constants/members'
 import { PersonCardPrintDialog } from '@/components/modals/person-card-print-dialog'
 import { CnpRejtett } from '@/components/members/cnp-rejtett'
+import { SzemelyiSzamMezo } from '@/components/members/szemelyi-szam-mezo'
+import { cnpMaszkolando, cnpMezoCimke } from '@/lib/members/szemelyi-szam'
 import { FamilyAssignDialog } from '@/components/modals/family-assign-dialog'
 // 2026-08-11: az útvonal-célpont a HIVATALOS román alakból épül, és a lelkész
 // egyszer meg is erősítheti a helyet (lásd a két modul fejlécét).
@@ -1297,11 +1299,40 @@ export function MemberDetailsDialogV2({
                 tény, viszont személyazonosító adat — nem való egy utcán felmutatott
                 telefon fejlécébe.
                 2026-08-25 (GDPR): az érték ALAPBÓL MASZKOLT — csak a szem-ikonnal
-                fedhető fel, és a megtekintés naplózódik (CnpRejtett). */}
+                fedhető fel, és a megtekintés naplózódik (CnpRejtett).
+                2026-09-05 (Endre észrevétele): a mező KETTÉVÁLT. A `szemely.cnp`
+                az, ami valójában: EGYHÁZI BELSŐ azonosító (és a szülő-kapcsolatok
+                idegen kulcsa) — a nyomtatott karton már ma is így hívja. A
+                HIVATALOS személyi szám külön, szűkebb hozzáférésű helyre került. */}
+            <Field
+              icon={<IdCard className="size-4" />}
+              label={cnpMezoCimke(member.cnp)}
+              value={
+                member.cnp ? (
+                  cnpMaszkolando(member.cnp) ? (
+                    // Ismeretlen alak → SZEMÉLYES ADATNAK vesszük (fail-safe).
+                    // Ilyet a desktop új-tag űrlapja írhatott ide valódi CNP-ként.
+                    // ⛔ `key`: a karton NEM remountol személyváltáskor (a dialógust
+                    // a host `key` nélkül rendereli), ezért a `CnpRejtett` belső
+                    // „felfedve" állapota ÁTÖRÖKLŐDNE a következő személyre — annak
+                    // azonosítója azonnal csupaszon látszana, ÉS naplóbejegyzés
+                    // nélkül (a `naplozva` ref is életben maradna).
+                    <CnpRejtett key={member.id} cnp={member.cnp} szemelyId={member.id} />
+                  ) : (
+                    <span className="break-all">{member.cnp}</span>
+                  )
+                ) : (
+                  <Dash />
+                )
+              }
+              mono
+            />
+            {/* `key={member.id}`: ugyanaz az ok, mint fent — a felfedett érték ne
+                éljen túl egy személyváltást. */}
             <Field
               icon={<IdCard className="size-4" />}
               label="Személyi szám (CNP)"
-              value={member.cnp ? <CnpRejtett cnp={member.cnp} szemelyId={member.id} /> : <Dash />}
+              value={<SzemelyiSzamMezo key={member.id} szemelyId={member.id} />}
               mono
             />
           </FieldGroup>

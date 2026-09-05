@@ -20,6 +20,10 @@ export * from './jarulek-calculation'
 // másolatban élt, egyikük eltérő (`??`) fallback-szemantikával.
 export * from './payment-goal-code'
 export * from './rental-calculation'
+// 2026-09-03 (Endre 2.): a rogzites-biztato (igevers) IDE koltozott az apps/web-bol,
+// hogy a DESKTOP is ugyanazt lassa — eddig ott egyaltalan nem volt igevers.
+// A komponens hook-mentes es SAJAT 'use client' direktivaval kezdodik (a barrel nem visz direktivat).
+export { RogzitesBiztato } from './RogzitesBiztato'
 // 2026-06-10 (B-hullám): közös Pénzügy-hero (web ⇄ desktop azonos fejléc)
 export * from './FinanceHero'
 export * from './FinanceLoadingState'

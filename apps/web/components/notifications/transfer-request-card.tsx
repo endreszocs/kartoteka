@@ -195,11 +195,15 @@ export function TransferRequestCard({ notification, mode, onResponded }: Transfe
               {member?.ferfi !== null && member?.ferfi !== undefined && (
                 <span>{member.ferfi ? '♂ Férfi' : '♀ Nő'}</span>
               )}
-              {/* 2026-08-25 (GDPR): a CNP alapból maszkolt, szem-ikonnal
-                  fedhető fel — a megtekintés naplózódik (CnpRejtett). */}
+              {/* 2026-08-25 (GDPR): alapból maszkolt, szem-ikonnal fedhető fel
+                  — a megtekintés naplózódik (CnpRejtett).
+                  2026-09-05: a felirat ŐSZINTE. Ez a mező a KÜLDŐ gyülekezet
+                  egyházi azonosítója, nem a személyi szám — a fogadó lelkész
+                  eddig azt hihette, állami azonosító alapján azonosít. */}
               {member?.cnp && (
                 <span className="inline-flex items-center gap-1">
-                  CNP: <CnpRejtett cnp={member.cnp} szemelyId={notification.szemely_id} kompakt />
+                  Egyházi azonosító:{' '}
+                  <CnpRejtett cnp={member.cnp} szemelyId={notification.szemely_id} kompakt />
                 </span>
               )}
             </div>

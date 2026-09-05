@@ -54,9 +54,9 @@ const MOCK_BM_ARVA: InternalMovementHealth = {
   orphanCount: 3,
   unpairedIds: new Set([5703, 5704, 5709]),
   items: [
-    { datum: '2026-04-16', osszeg: 16300, side: 'income', orphan: true, description: '', id: 9001, bankszamlaId: 1 },
-    { datum: '2026-02-18', osszeg: 15015, side: 'income', orphan: true, description: '', id: 9002, bankszamlaId: 1 },
-    { datum: '2026-02-18', osszeg: 2055, side: 'income', orphan: true, description: '', id: 9003, bankszamlaId: 1 },
+    { datum: '2026-04-16', osszeg: 16300, side: 'income', orphan: true, description: '', id: 9001, bankszamlaId: 1 , osszegRon: 16300, devizas: false },
+    { datum: '2026-02-18', osszeg: 15015, side: 'income', orphan: true, description: '', id: 9002, bankszamlaId: 1 , osszegRon: 15015, devizas: false },
+    { datum: '2026-02-18', osszeg: 2055, side: 'income', orphan: true, description: '', id: 9003, bankszamlaId: 1 , osszegRon: 2055, devizas: false },
   ],
 }
 // (B) a RÉGI, ismert eset: a másik oldal még nincs importálva → magától megoldódik.
@@ -65,7 +65,7 @@ const MOCK_BM_VARAKOZO: InternalMovementHealth = {
   orphanCount: 0,
   unpairedIds: new Set([9001]),
   items: [
-    { datum: '2026-03-10', osszeg: 500, side: 'expense', orphan: false, description: '', id: 9004, bankszamlaId: null },
+    { datum: '2026-03-10', osszeg: 500, side: 'expense', orphan: false, description: '', id: 9004, bankszamlaId: null , osszegRon: 500, devizas: false },
   ],
 }
 // (C) VEGYES: mindkét fajta egyszerre — a sáv mindkét üzenetet mutatja.

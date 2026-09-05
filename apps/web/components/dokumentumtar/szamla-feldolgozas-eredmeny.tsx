@@ -82,6 +82,7 @@ export function SzamlaFeldolgozasEredmenyPanel({ eredmeny }: SzamlaFeldolgozasEr
               <li key={i}>
                 {d.szamlaSzam || d.fajlnev}
                 {d.fajlPotolva ? ' — a hiányzó fájl-hivatkozást most pótoltuk' : ''}
+                {d.regiKulcs ? ' — korábbi azonosítóval már rögzítve (nem duplikáltuk)' : ''}
               </li>
             ))}
           </ul>

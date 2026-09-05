@@ -1,5 +1,7 @@
 'use server'
 
+import { randomUUID } from 'node:crypto'
+
 import { revalidatePath } from 'next/cache'
 import { selectAllPaged } from '@kartoteka/supabase-client'
 import { z } from 'zod'
@@ -120,6 +122,79 @@ export async function getCalendarFeedToken(): Promise<{ token: string | null; er
     return { token: null, error: 'A gyülekezetnek még nincs naptár-hivatkozása — futtasd le a 2026-08-02-es naptár-feed migrációt.' }
   }
   return { token }
+}
+
+/**
+ * ÚJ NAPTÁR-HIVATKOZÁS KÉRÉSE — a régi azonnal érvénytelenné válik.
+ * (2026-09-04, a védelmi felülvizsgálat P0·9 találata.)
+ *
+ * ⛔ MI HIÁNYZOTT: a `congregations.calendar_feed_token` maga a feed
+ *    HITELESÍTŐJE — aki ismeri, letölti a gyülekezet teljes programlistáját.
+ *    A repóban viszont EGYETLEN kódút sem volt, ami újragenerálná vagy
+ *    visszavonná. Egy kiszivárgott hivatkozás tehát ÖRÖKRE érvényes maradt:
+ *    nem lehetett rá reagálni, csak tudomásul venni.
+ *
+ *    A privát, lelkészi naptárnak (`lelkeszi_naptar_token`) MÁR VOLT
+ *    újragenerálása és visszavonása — a gyülekezetinek nem. Ez a hiányzó pár.
+ *
+ * ⚠️ MIÉRT SÜRGŐSEBB, MINT ELSŐRE LÁTSZIK: a 2026-09-04-i mérés szerint
+ *    mind a 783 gyülekezetnek van tokenje, és a `congregations` tábla
+ *    SELECT-policy-je `USING (true)` — vagyis MINDEN bejelentkezett fiók
+ *    kiolvassa MINDEN gyülekezet tokenjét. Amíg az a policy nem szűkül
+ *    (külön kör, mert 149 olvasási helyet érint), a forgatás az egyetlen
+ *    kézben tartható válasz.
+ *
+ * A token szerveroldali CSPRNG-ből jön (`randomUUID`), és semmiből nem
+ * származtatjuk — sem a gyülekezet azonosítójából, sem a régi tokenből.
+ * (Ugyanaz az elv, mint a `generatePastoralCalendarToken`-nél.)
+ */
+export async function forgatCalendarFeedToken(): Promise<{
+  ok: boolean
+  token?: string
+  error?: string
+}> {
+  const { supabase, congregationId } = await getEffectiveCongregationContext()
+  if (!congregationId) return { ok: false, error: 'Nincs aktív gyülekezet kiválasztva.' }
+
+  const ujToken = randomUUID()
+
+  const { data, error } = await supabase
+    .from('congregations')
+    .update({ calendar_feed_token: ujToken })
+    .eq('id', congregationId)
+    .select('calendar_feed_token')
+    .maybeSingle()
+
+  if (error) {
+    console.error('[programs/naptar-token] a forgatás nem sikerült:', error.message)
+    return { ok: false, error: 'Az új hivatkozás létrehozása nem sikerült — próbáld újra.' }
+  }
+
+  // ⚠️ NÉMA SIKER KIZÁRÁSA: a PostgREST a 0 sort érintő írásra is HIBÁTLAN
+  // választ ad — például akkor, amikor az RLS tagadta meg a módosítást. Ha
+  // ezt nem néznénk, a felület „kész"-t mondana, miközben a régi hivatkozás
+  // tovább él. Ugyanez a csapda a lelkészi naptár-tokennél is ki van zárva.
+  if (!data) {
+    return {
+      ok: false,
+      error:
+        'Az új hivatkozás létrehozása nem sikerült (nincs jogosultság ehhez a gyülekezethez). ' +
+        'Jelezd a rendszergazdának.',
+    }
+  }
+
+  // A naplóba SOHA nem kerül maga a token — csak az, hogy forgatás történt.
+  // (A `targetId` uuid, tehát nem esik bele az egész-azonosítós audit-hibába.)
+  await logAuditEvent(
+    {
+      action: 'program.naptar_token_forgatas',
+      targetTable: 'congregations',
+      targetId: congregationId,
+    },
+    supabase,
+  )
+
+  return { ok: true, token: (data as { calendar_feed_token: string }).calendar_feed_token }
 }
 
 /**

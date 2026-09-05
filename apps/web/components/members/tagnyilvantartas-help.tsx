@@ -243,17 +243,48 @@ function GeneralContent() {
         valamint <strong>Választások</strong> esetén az aktív választói névjegyzék.
       </p>
 
-      {/* 2026-08-25 (GDPR): a személyi szám megjelenítési szabálya */}
-      <SectionTitle>Személyi szám (CNP) — mindig rejtve</SectionTitle>
+      {/* 2026-08-25 (GDPR): a személyi szám megjelenítési szabálya.
+          2026-09-05: a szakasz SZÉTVÁLT. A régi szöveg egyszerre állította,
+          hogy a mező „romániai CNP" és hogy „egyházi belső azonosító" — a
+          lelkész pedig abban a hitben adta tovább az Excel-exportot, hogy
+          abban személyi szám van. */}
+      <SectionTitle>Egyházi azonosító és személyi szám — KÉT különböző dolog</SectionTitle>
       <p>
-        A személyi szám (romániai CNP vagy más, <strong>országfüggő formátumú</strong> személyi
-        azonosító) tárolható a rendszerben, de a felületen <strong>mindig rejtve</strong> jelenik
-        meg — mint egy jelszó. A <strong>szem-ikonnal</strong> fedhető fel, és minden
-        megjelenítés <strong>naplózódik</strong> (ki és mikor nézte meg kinek a számát).
-        A rendszer által generált egyházi azonosítók (<code className="rounded bg-slate-100 px-1 text-xs dark:bg-slate-800">EC-…</code>)
-        ugyanígy rejtve maradnak. A hivatalos nyilvántartáshoz készülő Excel-exportok és a
-        nyomtatott kartonok a számot továbbra is tartalmazzák.
+        A <strong>egyházi azonosító</strong> a rendszer saját, belső kódja
+        (<code className="rounded bg-slate-100 px-1 text-xs dark:bg-slate-800">EC-2026-…</code> vagy
+        egy <code className="rounded bg-slate-100 px-1 text-xs dark:bg-slate-800">999…</code> kezdetű
+        szám). Minden tag kap egyet, mert erre épülnek a szülő-gyermek kapcsolatok. Ez
+        <strong> nem személyes adat</strong>, és nem a személyi igazolványban szereplő szám.
+        Az Excel-exportban is ez az oszlop szerepel, „Egyházi azonosító" fejléccel.
       </p>
+      <p>
+        A <strong>hivatalos személyi szám (CNP)</strong> ettől külön, a személyi kartonon
+        rögzíthető — és szigorúbb védelmet kap:
+      </p>
+      <ul className="ml-4 list-disc space-y-1">
+        <li>
+          <strong>Nem kötelező.</strong> Ha nincs rá szükség, hagyd üresen.
+        </li>
+        <li>
+          <strong>Nem tölt le a listával.</strong> Az érték csak akkor jön le a szerverről, ha
+          valaki a szem-ikonnal ténylegesen elkéri — addig a böngésző sem látja.
+        </li>
+        <li>
+          <strong>Minden megjelenítés naplózódik</strong> (ki, mikor, kinek a számát nézte meg).
+          A napló magát a számot SOHA nem tartalmazza.
+        </li>
+        <li>
+          <strong>Csak a tag saját gyülekezete látja</strong> — a felettes szintek és a
+          kereszt-gyülekezeti egyeztetés nem.
+        </li>
+        <li>
+          <strong>Nem kerül bele</strong> az Excel-tükörbe és a kapcsolat nélküli másolatba.
+        </li>
+        <li>
+          A 13 jegyű romániai CNP <strong>ellenőrző számjegyét megvizsgáljuk</strong> — az
+          elgépelt szám rosszabb, mint a hiányzó. Külföldi azonosító betűt is tartalmazhat.
+        </li>
+      </ul>
     </>
   )
 }
@@ -1210,9 +1241,10 @@ function ErrorsContent() {
         <div>
           <Pill tone="amber">Formátum-hiba</Pill>
           <p className="mt-1">Érvénytelen formátum: rossz email vagy telefonszám.
-            <strong> Fontos:</strong> a CNP mező a rendszerben <strong>egyházi belső
-            azonosító</strong> (az <code className="rounded bg-slate-100 px-1 text-xs">EC-2026-…</code>{' '}
-            formátum teljesen érvényes) — erre NINCS formátum-ellenőrzés. Ha régebbi
+            <strong> Fontos:</strong> az <strong>egyházi azonosító</strong> mezőre (az{' '}
+            <code className="rounded bg-slate-100 px-1 text-xs">EC-2026-…</code>{' '}
+            formátum teljesen érvényes) NINCS formátum-ellenőrzés — a hivatalos személyi
+            szám az a KÜLÖN mező a személyi kartonon, azt viszont ellenőrizzük. Ha régebbi
             „A CNP nem 13 számjegy&rdquo; hibákat látsz, nyomd meg a „Hibák
             újraellenőrzése&rdquo; gombot: az elavult hibák automatikusan lezáródnak.</p>
         </div>

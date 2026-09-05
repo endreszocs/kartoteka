@@ -28,11 +28,17 @@ export const memberSchema = z.object({
   szcs_nev: z.string().optional().or(z.literal('')),
   /** 2026-08-01 (PR-19): név-előtag (id./ifj./özv./Dr.) — a szemely.namepattern */
   namepattern: z.string().trim().max(15).optional().or(z.literal('')),
-  /** 2026-08-25 (CNP kézi bevitel): országfüggő személyi szám — SZÁNDÉKOSAN laza
-   *  formátum (nem csak 13 jegyű román CNP: magyar, német… azonosító is jöhet).
+  /** 2026-08-25: az EGYHÁZI AZONOSÍTÓ (a rendszer belső kódja).
    *  Üres/undefined = „nem nyúlunk hozzá": új tagnál a rendszer generál,
-   *  meglévőnél a tárolt érték változatlan marad (a saveMember szabálya). */
-  cnp: z.string().trim().max(40).optional().or(z.literal('')),
+   *  meglévőnél a tárolt érték változatlan marad (a saveMember szabálya).
+   *
+   *  ⚠️ 2026-09-05: a plafon 40-ről 20-ra ment. Az ÉLŐ oszlop `varchar(20)`
+   *  (mérve), tehát 21-40 karakternél a mentés nyers 22001-gyel bukott a
+   *  lelkész arcába — a séma-dump ezt a hosszt sem tartalmazza.
+   *
+   *  ⚠️ Valódi romániai CNP-t ez a mező NEM fogad el (`valodiCnpGyanus` kapu a
+   *  saveMember-ben): a hivatalos szám a `szemely_szemelyi_szam` táblába megy. */
+  cnp: z.string().trim().max(20, 'Az egyházi azonosító legfeljebb 20 karakter.').optional().or(z.literal('')),
   ferfi: z.boolean({ message: 'A nem megadása kötelező' }),
   sz_datum: z
     .string()

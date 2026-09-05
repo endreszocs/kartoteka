@@ -40,6 +40,7 @@ import { batchMatchPdfsToXmlsByName, type NameMatchResult } from './pdf-xml-name
 import {
   parseUblXml,
   extractAnafUuidFromFilename,
+  identityKeyFromInvoice,
   normalizeFileBaseName,
   type UblInvoiceMeta,
 } from './ubl-parser'
@@ -430,7 +431,13 @@ export function OblioEllenorzesTab({
       const parsedXmls: { meta: UblInvoiceMeta; fileName: string; fileLastModified: number; xmlHandle: FileSystemFileHandle }[] = []
 
       for (const f of xmlsRaw) {
-        const fallbackUuid = extractAnafUuidFromFilename(f.name) || f.name
+        // 2026-09-04: a CACHE kulcsa maradhat fájlnév-alapú (a cache fájlnév +
+        // módosítási idő szerint is ellenőriz), de az `anafUuid` NEM lehet csupasz
+        // fájlnév — két szállító `factura.xml`-je azonos kulcsot kapott, a második
+        // némán elveszett. A kulcs: fájlnév-index → a számla identitása → különben
+        // a fájl kimarad, HANGOSAN.
+        const fajlnevIndex = extractAnafUuidFromFilename(f.name)
+        const fallbackUuid = fajlnevIndex || f.name
         const cached = await getCachedXml(cong, fallbackUuid)
         if (
           cached &&
@@ -448,9 +455,16 @@ export function OblioEllenorzesTab({
         // Parse
         try {
           const text = await fileSystem.readFileAsText(f.handle)
-          const meta = parseUblXml(text, fallbackUuid)
-          // Ha a parse-er nem talált anafUuid-t, használjuk a fájlnévből kinyertet
-          if (!meta.anafUuid) meta.anafUuid = fallbackUuid
+          const meta = parseUblXml(text, fajlnevIndex ?? undefined)
+          // Ha sem cbc:UUID, sem fájlnév-index: a számla IDENTITÁSÁBÓL képzünk
+          // kulcsot (a webes feltöltési úttal azonos alakban).
+          if (!meta.anafUuid) {
+            meta.anafUuid = identityKeyFromInvoice(meta.supplier.cui, meta.invoiceNumber, meta.issueDate)
+          }
+          if (!meta.anafUuid) {
+            console.warn(`[oblio] ${f.name}: nincs azonosítható kulcs (UUID / fájlnév-index / CUI+szám+kelte) — kihagyva`)
+            continue
+          }
           parsedXmls.push({
             meta,
             fileName: f.name,

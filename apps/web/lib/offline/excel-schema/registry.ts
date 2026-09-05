@@ -36,6 +36,19 @@ export interface ExcelFieldDef {
   type: ExcelFieldType
   /** Oszlop szélesség (karakterekben, default 14) */
   width?: number
+  /**
+   * 2026-09-05 — CSAK OLVASHATÓ oszlop: megjelenik az exportban, de a
+   * visszaolvasás SOHA nem írja vissza.
+   *
+   * ⚠️ MIÉRT KELLETT: a munkalap jelszó NÉLKÜL védett (a felhasználó a
+   * „Véleményezés → Munkalap zárolásának feloldása"-val kikapcsolhatja), a
+   * visszaolvasás POZÍCIÓ szerint dolgozik, a különbség-számítás pedig MINDEN
+   * mezőt összevet. Az `szemely.cnp` viszont a szülő-gyermek kapcsolatok
+   * idegen kulcsa, ON UPDATE CASCADE-del: egy Excelben „kijavított" cella
+   * NÉMÁN átkulcsolta volna a gyermekek `id_apja`/`id_anyja` hivatkozását,
+   * és a kaszkád még a gyülekezet-határon is átlép (az RLS nem vonatkozik rá).
+   */
+  csakOlvashato?: boolean
 }
 
 export interface ExcelSheetDef {
@@ -47,6 +60,33 @@ export interface ExcelSheetDef {
   fields: ExcelFieldDef[]
   /** Szín-szintű (téma) a munkalap fülére — hex kód */
   tabColor?: string
+}
+
+/**
+ * A CSAK OLVASHATÓ (vissza nem írható) oszlopok technikai nevei egy Dexie
+ * táblára. A visszaolvasás ezekkel a mezőkkel NEM módosíthat meglévő sort.
+ */
+export function csakOlvashatoMezok(dexieTable: string): Set<string> {
+  const nevek = new Set<string>()
+  for (const modul of getAllExcelSchemas()) {
+    for (const lap of modul.sheets) {
+      if (lap.dexieTable !== dexieTable) continue
+      for (const mezo of lap.fields) if (mezo.csakOlvashato) nevek.add(mezo.technical)
+    }
+  }
+  return nevek
+}
+
+/** Eltávolítja a csak olvasható mezőket egy visszaírandó rekordból. */
+export function csakOlvashatoNelkul<T extends Record<string, unknown>>(
+  dexieTable: string,
+  rekord: T,
+): T {
+  const tiltott = csakOlvashatoMezok(dexieTable)
+  if (tiltott.size === 0) return rekord
+  const ki = { ...rekord }
+  for (const nev of tiltott) delete ki[nev]
+  return ki
 }
 
 export interface ExcelModuleSchema {
@@ -78,7 +118,12 @@ const TAGNYILVANTARTAS_SCHEMA: ExcelModuleSchema = {
       tabColor: '10b981', // emerald-500
       fields: [
         { displayName: 'ID', technical: 'id', type: 'number', width: 7 },
-        { displayName: 'CNP', technical: 'cnp', type: 'string', width: 15 },
+        // 2026-09-05: a fejléc eddig „CNP" volt, de az oszlop a rendszer által
+        // GENERÁLT egyházi azonosítót tartalmazza (EC-…, 999…). A lelkész abban
+        // a hitben adta tovább a fájlt, hogy abban személyi szám van. A
+        // HIVATALOS személyi szám külön, szűkebb hozzáférésű táblában él, és
+        // SZÁNDÉKOSAN nem kerül az Excel-tükörbe (a `szig`/`taj` precedense).
+        { displayName: 'Egyházi azonosító', technical: 'cnp', type: 'string', width: 20, csakOlvashato: true },
         { displayName: 'Családnév', technical: 'csaladnev', type: 'string', width: 18 },
         { displayName: 'Keresztnév', technical: 'k_nev', type: 'string', width: 18 },
         { displayName: 'Születéskori név', technical: 'szcs_nev', type: 'string', width: 18 },

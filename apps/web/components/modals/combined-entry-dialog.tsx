@@ -11,6 +11,7 @@
 import { useEffect, useState } from 'react'
 import {
   CombinedEntryBody,
+  RogzitesBiztato,
   type CombinedEntryBodyProps,
   type IncomeCategory,
   type ExpenseCategory,
@@ -20,7 +21,6 @@ import {
 // biztonságos (a `finance-scope.ts` gazda-modul `server-only` láncot húzna be).
 import type { FinanceScope } from '@/lib/auth/finance-scope-core'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
-import { RogzitesBiztato } from '@/components/finance/kassza-biztato'
 import { ListPlus } from 'lucide-react'
 import { checkSimilarBankEntries } from '@/app/(dashboard)/penzugy/hasonlo-tetel-actions'
 import {
@@ -38,6 +38,7 @@ import {
   checkReceiptDuplicate,
   getLastRecordedDate,
   listExpensePartnerNames,
+  listIncomePartnerNames,
 } from '@/app/(dashboard)/penzugy/actions'
 import { toast } from 'sonner'
 
@@ -95,6 +96,8 @@ export function CombinedEntryDialog({ open, onOpenChange, incomeCategories, expe
   /** 2026-09-02 (Endre 7.): a banki-import magyarázó buborék (érintésre is). */
   const [bankiSugoNyitva, setBankiSugoNyitva] = useState(false)
   const [ismertPartnerek, setIsmertPartnerek] = useState<string[] | undefined>(undefined)
+  /** 2026-09-04 (Endre): a gyülekezet ismert BEVÉTELI cég-partnerei — a „cég" jelvényhez. */
+  const [ismertCegek, setIsmertCegek] = useState<string[] | undefined>(undefined)
   useEffect(() => {
     if (!open || !gyulekezeti) return
     let ervenyes = true
@@ -103,6 +106,10 @@ export function CombinedEntryDialog({ open, onOpenChange, incomeCategories, expe
       // Hiba esetén marad `undefined` → nincs jelzés. Ez a helyes fail-safe:
       // egy sikertelen betöltés nem állíthatja minden partnerről, hogy „új".
       .catch(() => { if (ervenyes) setIsmertPartnerek(undefined) })
+    // A két lista FÜGGETLEN: az egyik bukása ne vigye el a másik jelzését sem.
+    void listIncomePartnerNames()
+      .then((nevek) => { if (ervenyes) setIsmertCegek(nevek) })
+      .catch(() => { if (ervenyes) setIsmertCegek(undefined) })
     return () => { ervenyes = false }
   }, [open, gyulekezeti])
 
@@ -156,15 +163,21 @@ export function CombinedEntryDialog({ open, onOpenChange, incomeCategories, expe
                 </p>
               </div>
             </div>
+            {/* 2026-09-03 (Endre 2.): az igevers KÖZVETLENÜL az alcím alá került,
+                a fejléc-blokkon BELÜLRE — eddig a fejléc alsó szegélye ALATT ült,
+                vagyis vizuálisan a törzshöz tartozott, pedig a szövege az alcímre
+                felel. A DialogHeader MÁSODIK gyerekeként teljes szélességű marad
+                (a cím szöveg-oszlopába téve az ikon + gap miatt beljebb kezdődne
+                és összezsugorodna).
+                ⛔ SZÁNDÉKOSAN NEM kap a fejléc és a törzs közös új szülőt: a
+                ragadó Bevétel/Kiadás fül-sáv (CombinedEntryBody `sticky top-0`)
+                görgető-őse a DialogContent popupja. Egy közös wrapper bármilyen
+                overflow/transform/filter osztállyal NÉMÁN megszüntetné a ragadást
+                — hibaüzenet nélkül, zöld CI mellett. */}
+            <div className="mt-3">
+              <RogzitesBiztato />
+            </div>
           </DialogHeader>
-        </div>
-
-        {/* 2026-08-15 (Endre kérése): az igevers és a bátorítás a Kassza fülről
-            IDE, a rögzítő ablakba költözött — kiemelten, mindjárt a fejléc alatt.
-            (A Kassza fül párhuzamos sávja megszűnt: a gombja megkettőzte a hero
-            „Tétel rögzítése" gombját.) */}
-        <div className="px-6 pt-4">
-          <RogzitesBiztato />
         </div>
 
         <div className="px-6 pb-6 pt-4">
@@ -231,6 +244,7 @@ export function CombinedEntryDialog({ open, onOpenChange, incomeCategories, expe
             }}
             onSearchExpensePartners={async (query) => await searchExpensePartners(query)}
             knownExpensePartners={ismertPartnerek}
+            knownIncomePartners={ismertCegek}
             unpairedMovements={unpairedMovements}
             /* 2026-08-27 (Endre 8. kérése): mentés ELŐTT megnézzük, van-e már
                ugyanolyan összegű, hasonló nevű, ±3 napon belüli BANKI tétel.

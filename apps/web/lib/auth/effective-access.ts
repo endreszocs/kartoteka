@@ -130,6 +130,17 @@ export interface EffectiveAccessContext {
   fullName: string
   role: Role
   master: boolean
+  /**
+   * A profil `status` mezője `'active'` — VAGY a fő rendszergazdáról van szó.
+   *
+   * 2026-09-04 (P0·2): ez a mező hordozza azt a feltételt, amitől az összes
+   * lenti származtatott jog (`admin`, `egyhazkeruletiAdmin`, `esperes`,
+   * `konyvelo`, `szamvevo`) függ. Külön mezőként azért van itt, hogy a hívó
+   * meg tudja KÜLÖNBÖZTETNI a „nincs joga" és a „még nincs jóváhagyva"
+   * esetet — a `role` szándékosan változatlan marad, hogy a `/pending` oldal
+   * továbbra is meg tudja mutatni, milyen szerepkört kért a felhasználó.
+   */
+  statusActive: boolean
   admin: boolean
   /** Egyházkerületi admin (új szerepkör 2026-04-16). Magában foglalja az `admin`-t és a master admint is. */
   egyhazkeruletiAdmin: boolean
@@ -350,6 +361,7 @@ export const getEffectiveAccessContext = cache(async (): Promise<EffectiveAccess
       fullName: '',
       role: 'lelkesz',
       master: false,
+      statusActive: false,
       admin: false,
       egyhazkeruletiAdmin: false,
       esperes: false,
@@ -382,11 +394,48 @@ export const getEffectiveAccessContext = cache(async (): Promise<EffectiveAccess
   const hasPrimaryRole = isKnownRole(profile?.role)
   const missingPrimaryRole = Boolean(profile && !master && !hasPrimaryRole)
   const role = (hasPrimaryRole ? profile.role : 'lelkesz') as Role
-  const admin = isAdminRole(role, user.email)
-  const egyhazkeruletiAdmin = isEgyhazkeruletiAdminRole(role, user.email)
-  const esperes = isEsperesRole(role, user.email)
-  const konyvelo = isKonyveloRole(role)
-  const szamvevo = isSzamvevoRole(role)
+
+  // ══════════════════════════════════════════════════════════════════════════
+  // STÁTUSZ-KAPU (2026-09-04, P0·2) — a jóváhagyás az API-n is kapu, nem csak
+  // a felületen.
+  // ══════════════════════════════════════════════════════════════════════════
+  //
+  // ⛔ AMI ROSSZ VOLT: a származtatott jogok KIZÁRÓLAG a `profiles.role`
+  //    értékéből jöttek (`const admin = isAdminRole(role, user.email)`), a
+  //    `profiles.status` megkérdezése nélkül. A státusz-kapu csak a
+  //    `(dashboard)/layout.tsx:144-148`-ban élt — az viszont OLDAL-renderelést
+  //    kapuz, NEM szerver-akciót. A Next.js szerver-akció önálló POST-végpont:
+  //    a layout soha nem fut le előtte. Egy `status='pending'` profil tehát a
+  //    teljes `/admin` szerver-akció felületet elérte, holott a felületet magát
+  //    sosem látta volna.
+  //
+  // ⛔ MIÉRT VOLT EZ SÚLYOS: az élő `handle_new_user()` trigger a regisztráló
+  //    metaadatából tölti a `profiles.role`-t (lásd a 2026-09-03-i
+  //    felülvizsgálat P0·1-ét), a `status` viszont fixen `'pending'`. A
+  //    `'pending'` tehát PONTOSAN az a fék, ami a metaadat-injektálást
+  //    ártalmatlanná tenné — csak épp senki nem húzta be az alkalmazásban.
+  //
+  // ✅ MIÉRT ITT, EGY HELYEN: `access.admin`-t 74 hely olvassa, az
+  //    `egyhazkeruletiAdmin`-t 41. Ha a kaput a hívókba tennénk, a következő
+  //    új hívási hely megint kifelejtené. A származtatott jog KELETKEZÉSÉNÉL
+  //    zárva a kérdés fel sem merül a hívónál.
+  //
+  // ✅ MIÉRT NEM ZÁR KI SENKIT: a `(dashboard)/layout.tsx:145` és a
+  //    `(setup)/layout.tsx:53` már ma is `status='active'`-ot követel
+  //    (a `master` kivételével) — aki nem aktív, az MA SEM tud dolgozni.
+  //    Ez a változás tehát nem szűkít, hanem a felületi szabályt kiterjeszti
+  //    az API-ra is.
+  //
+  // ⚠️ A `role` SZÁNDÉKOSAN VÁLTOZATLAN MARAD: a `/pending` oldal abból
+  //    mutatja meg, milyen szerepkört kért a felhasználó. Csak a származtatott
+  //    JOG esik el, az igény nem.
+  const statusActive = master || profile?.status === 'active'
+
+  const admin = statusActive && isAdminRole(role, user.email)
+  const egyhazkeruletiAdmin = statusActive && isEgyhazkeruletiAdminRole(role, user.email)
+  const esperes = statusActive && isEsperesRole(role, user.email)
+  const konyvelo = statusActive && isKonyveloRole(role)
+  const szamvevo = statusActive && isSzamvevoRole(role)
   const profileCongregationId = profile?.congregation_id || null
 
   // FÁZIS 3 (2026-04-17): multi-role és aktív kontextus feloldás — ELSŐ a scope döntéshez
@@ -490,6 +539,7 @@ export const getEffectiveAccessContext = cache(async (): Promise<EffectiveAccess
     fullName: profile?.full_name || '',
     role,
     master,
+    statusActive,
     admin,
     egyhazkeruletiAdmin,
     esperes,

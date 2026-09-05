@@ -41,7 +41,7 @@ import {
   isFileSystemAccessSupported,
   readFile,
 } from '@/lib/offline/fs-handle-store'
-import { getAllExcelSchemas } from '@/lib/offline/excel-schema/registry'
+import { csakOlvashatoNelkul, getAllExcelSchemas } from '@/lib/offline/excel-schema/registry'
 import { getDb } from '@/lib/offline/db'
 import { enqueue } from '@/lib/offline/mutation-queue'
 
@@ -468,14 +468,21 @@ export function ExcelImportReview({
             if (!selection[key]) continue
             const row = sheet.updated[rowIdx]
             try {
+              // 2026-09-05: a CSAK OLVASHATÓ oszlopokat NEM írjuk vissza. A
+              // különbség-számítás már kihagyja őket, de a payload eddig a
+              // NYERS Excel-értékeket vitte — így egy átírt „Egyházi
+              // azonosító" cella mégis kiment volna a szerverre, és a
+              // ON UPDATE CASCADE némán átkulcsolta volna a gyermekek
+              // szülő-hivatkozását.
+              const excelErtekek = csakOlvashatoNelkul(sheet.dexieTable, row.excelRow!.values)
               const payload = {
                 ...(row.dexieRecord || {}),
-                ...row.excelRow!.values,
+                ...excelErtekek,
                 id: row.rowId,
               }
               const dexieTable = db.table(sheet.dexieTable)
               await dexieTable.update(row.rowId as string | number, {
-                ...row.excelRow!.values,
+                ...excelErtekek,
                 _syncStatus: 'pending',
               })
               await enqueue({

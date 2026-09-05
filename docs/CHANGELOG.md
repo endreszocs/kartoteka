@@ -91,10 +91,243 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ### 🛠️ Rendszergazdának
 
-- Három adatbázis-lépés fut fájlból: `2026-09-05-desktop-kapcsolas.sql`,
-  `2026-09-05-naptar-anyakonyv-szabadsag-nevnap.sql`, `2026-09-05-ertesitesek-felado.sql`
-  (mind idempotens, a végén ellenőrző ráccsal). Az asztali változásokhoz új asztali kiadás
+- Négy adatbázis-lépés fut fájlból: `2026-09-05-desktop-kapcsolas.sql`,
+  `2026-09-05-naptar-anyakonyv-szabadsag-nevnap.sql`, `2026-09-05-ertesitesek-felado.sql`,
+  `2026-09-05-profil-pontossag.sql` (a profilkép forrása + a régi szolgálati helyek átemelése
+  a strukturált előzménybe) — mind idempotens, a végén ellenőrző ráccsal. Az asztali változásokhoz új asztali kiadás
   (0.9.13) kell.
+
+## [2026-09-05] — A személyi szám védelmének megerősítése
+<!-- key: 2026-09-05-szemelyi-szam-megerosites -->
+<!-- category: security -->
+<!-- version: 0.9.226 -->
+<!-- targets: lelkipásztorok — személyi szám, egyházi azonosító, Excel-körút -->
+
+### 🔒 Biztonsági javítások
+
+- **A hivatalos személyi szám csak naplózottan nézhető meg**: ha a naplózás
+  bármi okból nem sikerül, a rendszer most már NEM mutatja meg a számot. Eddig
+  a naplózási hibát csendben elnyelte, és az „minden megjelenítés naplózódik"
+  ígéret észrevétlenül üressé válhatott.
+- **Nem keveredhet két ember száma**: ha megnyomtad a szem-ikont, majd gyorsan
+  átléptél egy másik tag kartonjára, az előző ember száma megjelenhetett volna
+  az új név alatt. Javítva — és a kartonváltás mostantól minden azonosító-mezőt
+  alaphelyzetbe tesz.
+- **Valódi CNP nem menthető az „Egyházi azonosító" mezőbe**: az egyházi
+  azonosító a rendszer belső kódja, ami a taglistával együtt utazik és a
+  változás-naplóba is bekerül. Ha 13 jegyű személyi számot írsz be, a rendszer
+  megmondja, hova tartozik helyette.
+- **Az Excel-körút nem írhatja át az egyházi azonosítót**: az exportált
+  munkalapon ez az oszlop mostantól csak olvasható. Egy „kijavított" cella eddig
+  átírhatta volna a szülő-gyermek kapcsolatokat — némán, akár más gyülekezetben is.
+- **A hivatalos szám bekerült az adatexportba**: eddig kimaradt volna a
+  „teljes" adatcsomagból, pedig az érintettnek joga van hozzá.
+
+### 🐛 Javítások
+
+- **A teszt-gyülekezet 48 tagja nem kap többé téves figyelmeztetést**: az ő
+  azonosítójuk (`EC-TSZT-…`) is rendszer-generált, de a felület személyes
+  adatnak nézte és elrejtette.
+- **Külföldi azonosító is menthető**: a magyar (11 jegyű), bolgár és ukrán
+  (10 jegyű) személyi azonosítót eddig „elgépelted a CNP-t" üzenettel utasította
+  el a rendszer. Mostantól elfogadja — és megmondja, hogy nem tudta ellenőrizni.
+  A perjeles (cseh/szlovák) íráskép sem csonkul el többé.
+- **Érthető üzenet másik gyülekezet adatainál**: ha be vagy lépve egy másik
+  gyülekezetbe, a mező megmondja, miért nem használható — eddig azt írta, hogy
+  „nincs rögzítve", holott csak nem látta.
+- **Nincs többé hamis „törölve" üzenet**: ha a törlés valójában egyetlen sort sem
+  érintett, a rendszer ezt megmondja, és nem ír hamis bejegyzést a naplóba.
+- **Az egyházi azonosító hossz-korlátja a valósághoz igazodik** (20 karakter) —
+  eddig 40-et engedett, és 20 fölött nyers adatbázis-hibát adott.
+
+---
+
+## [2026-09-05] — Látod, kik vannak a családban; a személyi szám külön mezőbe került
+<!-- key: 2026-09-05-csalad-valaszto-es-szemelyi-szam -->
+<!-- category: improvement -->
+<!-- version: 0.9.225 -->
+<!-- targets: lelkipásztorok — családhoz rendelés a személyi kartonon, személyi szám -->
+
+### 🎨 UX javítások
+
+- **A családhoz rendelésnél látod, kik vannak a családban**: eddig a találat
+  csak ennyit mutatott: „Csoma család · Vasút 189 · 0 gyermek". Három azonos
+  vezetéknevű család mellett ebből nem derült ki, kit választasz. Mostantól ott
+  a férj és a feleség teljes neve születési évvel, és a gyermekek neve is.
+- **A gyermekszám végre igazat mond**: a kereső eddig a régi táblából számolt, a
+  személyi karton viszont az újból — ezért egy gyerekes család „0 gyermek"-et
+  mutathatott a keresőben. Most mindkét forrásból számol.
+- **A gyermek nevére is találsz**: eddig csak a szülők neve szerint keresett a
+  rendszer. Ha a gyerek nevét írtad be, azt hitted, nincs ilyen család — és újat
+  hoztál létre. Innen származik a több egyforma „Csoma család".
+- **Mielőtt hozzárendelsz, megnevezzük a családot**: a gomb fölött ott áll, kikhez
+  kerül a tag. Az áthelyezés a korábbi tagságot lezárja, ezért ez az a pont, ahol
+  a legtöbbet ér a visszaigazolás.
+- **A hibát kimondjuk**: ha a keresés elakad, a rendszer megmondja — eddig
+  ugyanazt a „Nincs találat"-ot írta ki, mint amikor tényleg nincs.
+
+### 🔒 Biztonsági javítások
+
+- **A személyi szám (CNP) külön mezőt kapott**: amit eddig „Személyi szám (CNP)"
+  címke alatt láttál a kartonon, az valójában a rendszer saját, generált
+  azonosítója (`EC-2026-…` vagy `999…`). Ez mostantól „Egyházi azonosító" néven
+  szerepel — a hivatalos személyi szám pedig külön rögzíthető alatta.
+- **A hivatalos szám szigorúbb védelmet kap**: nem tölt le a listával (csak akkor
+  jön le a szerverről, ha a szem-ikonnal ténylegesen elkéred), minden
+  megjelenítése naplózódik, és csak a tag saját gyülekezete látja. Az Excel-be és
+  a kapcsolat nélküli másolatba nem kerül bele.
+- **A 13 jegyű romániai CNP ellenőrző számjegyét megvizsgáljuk** — az elgépelt
+  szám rosszabb, mint a hiányzó. Külföldi azonosító betűt is tartalmazhat.
+- **Az Excel-export fejléce sem hazudik többé**: eddig „CNP" állt az oszlop
+  fölött, miközben a generált azonosító volt benne. Mostantól „Egyházi azonosító".
+- **A tagnyilvántartás naplója végre tényleg ír**: egy típus-eltérés miatt a
+  tag-törlés, a megjegyzés- és hozzájárulás-módosítás, valamint a személyi szám
+  megtekintése SOHA nem került be a naplóba — a rendszer csendben elnyelte.
+
+---
+
+## [2026-09-04] — Az anyakönyv nyomvonalat kapott, és érthető hibát ad
+<!-- key: 2026-09-04-anyakonyv-audit-integritas -->
+<!-- category: security -->
+<!-- version: 0.9.224 -->
+<!-- targets: lelkipásztorok — az anyakönyvi bejegyzések rögzítése és szerkesztése -->
+
+### 🔒 Biztonsági javítások
+
+- **Az anyakönyv mostantól nyomvonalat hagy**: a keresztelési, konfirmálási,
+  házassági, temetési és mozgás-bejegyzések eddig változás-napló nélkül álltak —
+  egy bejegyzés átírható vagy törölhető volt anélkül, hogy bármi nyoma maradt
+  volna. A személyi és a pénzügyi adatok már régóta naplózva vannak; mostantól
+  az anyakönyv is.
+- **A tagok névsora nem látszik más gyülekezetnek**: egy régi, fejlesztés-kori
+  szabály miatt minden bejelentkezett fiók elolvashatta az összes gyülekezet
+  teljes névsorát. A szabály megszűnt; a saját gyülekezet és a felettes szintek
+  hozzáférése változatlan.
+
+### 🐛 Javítások
+
+- **Egy sorszám nem szerepelhet kétszer**: az egyházi anyakönyvi számra eddig
+  semmilyen egyediségi védelem nem volt. Mostantól a rendszer nem engedi
+  ugyanazt a sorszámot két bejegyzésre.
+- **Érthető üzenet foglalt sorszámnál**: ha a beírt szám már foglalt, a mentés
+  nem nyers adatbázis-hibát ír ki, hanem megmondja, mi történt és mit tegyél.
+  A begépelt adatok megmaradnak.
+- **Az eltemetettek átvezetése**: 55 temetési bejegyzés mellett a rendszer
+  egyetlen embert tartott elhunytnak — a többi „aktív" tag maradt, ami torzította
+  a létszámot, a választói névjegyzéket és a járulék-elvárást (halott tagtól is
+  várt volna befizetést). A meglévő adat átvezetve, és a temetés rögzítése
+  mostantól magától is átvezeti.
+
+---
+
+## [2026-09-04] — A kassza felismeri a cégeket
+<!-- key: 2026-09-04-kassza-ceg-partner -->
+<!-- category: improvement -->
+<!-- version: 0.9.223 -->
+<!-- targets: lelkipásztorok és pénztárosok, akik szponzori támogatást vesznek be a kasszába -->
+
+### ✨ Új funkciók
+
+- **A befizető-kereső megtalálja a cégeket is**: eddig csak a gyülekezeti tagok
+  között keresett, ezért egy szponzoráló cég (pl. „SC Kiacom SRL") sosem jött elő
+  találatként, és a rendszer „nem tag"-ot írt mellé. Mostantól a kereső két
+  forrásból ajánlja a cégeket: a banki kivonat-importból már ismert partnerekből,
+  és a korábbi, taghoz nem kötött készpénzes bevételekből. A találati listában
+  külön „Cégek, szervezetek" csoportban jelennek meg.
+- **„cég" jelzés a „nem tag" helyett**: ha a begépelt név ismert cég, a mező
+  mellett zöld helyett indigó „cég" jelvény jelenik meg — kattintás nélkül is
+  látszik, hogy a partner korábban már adott, tehát nem elgépelés. Ismeretlen
+  névnél marad a régi „nem tag" jelzés.
+- A cég a könyvben továbbra is **szabad szövegként** rögzül (nincs taghoz kötve),
+  és **nem indul rá járulék-ajánló** — egy cégtől nem várunk egyházfenntartói
+  járulékot.
+
+---
+
+## [2026-09-04] — Kassza-rögzítő: örökbefogadott átvezetés, tömörebb sorok, gyorsabb keresés; ANAF-számlák nyomtatási képe
+<!-- key: 2026-09-04-kassza-faktura-spv-kor -->
+<!-- category: bugfix -->
+<!-- version: 0.9.222 -->
+<!-- targets: lelkipásztorok és pénztárosok, akik a készpénzes rögzítőt és a szállítói számlákat használják -->
+
+### 🐛 Javítások
+
+- **A „Párosítatlan tétel átvétele" nem duplikál többé**: eddig a bankban már
+  meglévő tétel átvétele egy *teljes új* átvezetést mentett el, így ugyanaz a pénz
+  kétszer szerepelt a könyvben, a piros figyelmeztetés pedig nem tűnt el. Mostantól
+  a rendszer a meglévő tételhez *csatolja* az újat — csak a hiányzó oldalt hozza
+  létre, és mentés előtt ellenőrzi, hogy a kiválasztott tétel közben nem változott-e.
+  (Élesben ilyen duplikátum nem keletkezett — a diagnosztika ezt igazolta.)
+- **A sztornó-számla nem tartozás**: a román kiállítók a sztornót gyakran rendes
+  számlaként küldik, negatív összeggel. Eddig ez pozitív, *második* tartozásként
+  jelent meg. Mostantól jóváírásként kerül be, és a megjegyzés megmondja, melyik
+  számlát érvényteleníti.
+- **ANAF-számla azonosítója**: az ANAF-exportból jövő fájloknál az azonosító eddig a
+  fájlnév *első* számsorából jött, ami néhány szállítónál (LIDL, Electrica) a saját
+  számlaszámuk volt, nem az ANAF-index. Most az utolsó számsor az azonosító; a
+  korábban rögzített számlákat a rendszer a régi azonosítón is felismeri, tehát az
+  újraimport nem hoz létre második sort.
+- **A tag-kereső nem ad többé néma üres listát**: ha egy kényelmi mező (cím, kor)
+  lekérdezése hibázott, eddig „nincs ilyen tag" látszott. Mostantól a kereső a
+  kényelmi adat nélkül is megtalálja a tagot, és a hibát naplózza.
+- **Gyors gépelésnél nem keveredhetnek a találatok**: a név-kereső csak a legutolsó
+  keresés eredményét mutatja — eddig egy lassabban beérkező régi válasz felülírhatta
+  az újat, és rossz tag kerülhetett a nyugtára.
+
+### ✨ Új funkciók
+
+- **Szállítói számla nyomtatási képe**: a „Megnyitás" mostantól előnézetet nyit az
+  ANAF-számlalap szerkezetével — szállító és vevő adatai, cégjegyzékszám, IBAN,
+  **sortételek**, ÁFA-bontás, összesítő. A nyomtatás új lapon indul, PDF-be is
+  menthető. A lap jelöli, hogy a Kartotékából készült, és hogy nem a hiteles
+  bizonylat (az az ANAF e-Factura XML).
+
+### 🎨 UX javítások
+
+- **Tömörebb tétel-sorok a készpénzes rögzítőben**: a befizető életkora és címe
+  vesszővel a neve mellett (utca, házszám is látszik — eddig levágódott), a három
+  gomb (Még egy befizető · Több évre · Család csatolása) mindig ugyanott, a járulék-
+  ajánló legfeljebb két sor — de a „maradék — erre az évre már fizetett…" indoklás
+  a képernyőn marad. A sor nem ugrik meg, amikor az ajánló megérkezik.
+- **Az igevers közvetlenül az alcím alatt**, és a desktopon is látszik (eddig ott
+  egyáltalán nem volt).
+- **A párosítatlan-választó megmondja, mi van**: hány tétel választható, melyik
+  van már kiválasztva, mikor könyvelték a bankban — és ha nincs ilyen, azt is kiírja.
+- **A kereső mutatja, hogy dolgozik** — nem kell újragépelni, amíg a találat úton van.
+
+---
+
+## [2026-09-04] — Szigorúbb kapuk a fiókok körül
+<!-- key: 2026-09-04-auth-kapuk-szigoritasa -->
+<!-- category: security -->
+<!-- version: 0.9.221 -->
+<!-- targets: minden felhasználó; a lelkipásztorokat a jelszóváltás és a naptár-hivatkozás érinti -->
+
+### 🔒 Biztonsági javítások
+
+- **A jóváhagyás mostantól mindenhol kapu**: eddig egy még jóvá nem hagyott fiók
+  bizonyos műveleteknél átcsúszhatott, mert a rendszer csak a szerepkörét nézte, az
+  állapotát nem. Mostantól minden adminisztratív művelethez aktív, jóváhagyott fiók kell.
+- **Új fiók nem kérhet magának rangot**: a regisztrációkor küldött adatok többé nem
+  befolyásolják, milyen szerepkörrel jön létre a fiók. Minden új fiók lelkészi
+  szerepkörrel és „jóváhagyásra vár" állapottal születik, ahogy eddig is szánták.
+- **Jelszóváltás után a többi eszköz kilép**: ha jelszót változtatsz vagy visszaállítasz,
+  a rendszer megszünteti a bejelentkezést minden más eszközön (desktop, telefon, másik
+  böngésző). Ott az új jelszóval kell újra belépni. Eddig a régi bejelentkezések
+  érvényben maradtak — ami épp akkor volt baj, amikor valaki azért váltott jelszót,
+  mert illetéktelen hozzáférésre gyanakodott.
+- **A pénzügyi import a bejelentkezett felhasználó nevében fut**: eddig a művelet
+  elfogadta, ha a kérés más felhasználót nevezett meg. Mostantól a rendszer a saját
+  bejelentkezésedből azonosít, és a naplóba is az kerül.
+- **A tagfotók csak a saját gyülekezetben szerkeszthetők**: a fotótár írási szabályai
+  eddig nem vizsgálták a gyülekezetet.
+
+### ✨ Új funkciók
+
+- **Cserélhető naptár-hivatkozás**: a Google Naptár összekötésénél mostantól kérhetsz
+  új hivatkozást (Programok → Google Naptár → „Új hivatkozás kérése"). A régi azonnal
+  érvénytelen lesz — akkor hasznos, ha a link rossz kezekbe került. Figyelem: aki
+  felvette a naptárába, annak újra fel kell vennie az újat.
 
 ## [2026-09-03] — Megszólal az ANAF-csengő, és beolvasható a tömeges ZIP
 <!-- key: 2026-09-03-anaf-csengo-es-zip -->

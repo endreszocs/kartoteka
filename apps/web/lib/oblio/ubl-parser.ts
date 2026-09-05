@@ -51,8 +51,23 @@ export interface UblSzamlaMeta {
   vevoNev: string | null
   /** Vevő CUI — ellenőrzéshez. */
   vevoCui: string | null
-  /** Bruttó végösszeg (PayableAmount, ennek híján TaxInclusiveAmount). */
+  /** Bruttó végösszeg (PayableAmount, ennek híján TaxInclusiveAmount) — ELŐJELESEN. */
   vegosszeg: number | null
+  /**
+   * 2026-09-04 (valódi ANAF-exporton mérve): a sztornó/jóváírás által
+   * hivatkozott EREDETI számla száma (cac:BillingReference/
+   * cac:InvoiceDocumentReference/cbc:ID). A román gyakorlatban a sztornó
+   * gyakran NEM CreditNote, hanem `InvoiceTypeCode 380`-as Invoice NEGATÍV
+   * tételekkel + BillingReference-szel az eredetire.
+   */
+  hivatkozottSzamla: string | null
+  /**
+   * +1 = tartozás, −1 = jóváírás/sztornó. ⛔ A típus NEM csak a gyökér-elemből
+   * dől el: egy negatív végösszegű `Invoice` is jóváírás. E nélkül a MIND
+   * ELECTROSERV MSV2785 (−22 010, a MSV2763 előleg sztornója) +22 010-es
+   * MÁSODIK tartozásként rögzült volna — az előjel elveszett.
+   */
+  elojel: 1 | -1
   /** Hiba esetén magyar üzenet — ilyenkor a többi mező részleges lehet. */
   parseError: string | null
 }
@@ -67,6 +82,15 @@ type XmlElem = {
   gyerekek: XmlElem[]
   /** A közvetlen szöveg-tartalom (entitás-dekódolva). */
   szoveg: string
+  /**
+   * 2026-09-03 (faktúra-nyomtatás): az attribútumok, localName szerint
+   * (`currencyID`, `unitCode`, `schemeID`). Eddig eldobtuk őket — a fejléc-
+   * mezőkhöz nem kellettek. A SORTÉTELEKHEZ viszont igen: a mennyiség
+   * mértékegysége (`unitCode`) és az összegek devizája (`currencyID`)
+   * attribútum. Deviza-tudat nélkül egy EUR-tétel RON-ként jelenne meg a
+   * nyomtatott íven — ez a hibaosztály az Oblio-láncban már megégetett minket.
+   */
+  attr: Record<string, string>
 }
 
 /** Belső, szándékosan elkapott hibatípus — a parseUblSzamla fordítja üzenetté. */
@@ -157,9 +181,41 @@ function dekodolEntitasok(s: string): string {
 }
 
 /**
- * A teljes XML-t fává parsolja. Attribútumokat nem tárolunk (nem kellenek a
- * kinyert mezőkhöz), de idézőjel-tudatosan lépünk át rajtuk — az
- * attribútum-értékben lévő '>' nem zavarhatja meg a szkennelést.
+ * Attribútumok kiolvasása a nyitó-tag név utáni részéből: `a="x" b='y'`.
+ * Idézőjel-tudatos, entitás-dekódolt; a namespace-prefixet (xmlns:cbc) a
+ * névből levágjuk. Hibás alakot nem dob — amit nem ért, azt kihagyja
+ * (egy hiányzó attribútum kevésbé fáj, mint egy eldobott egész számla).
+ */
+function parseAttributumok(resz: string): Record<string, string> {
+  const ki: Record<string, string> = {}
+  let i = 0
+  const n = resz.length
+  while (i < n) {
+    while (i < n && whitespace(resz[i])) i++
+    if (i >= n) break
+    let nevVege = i
+    while (nevVege < n && resz[nevVege] !== '=' && !whitespace(resz[nevVege])) nevVege++
+    const nev = resz.slice(i, nevVege)
+    i = nevVege
+    while (i < n && whitespace(resz[i])) i++
+    if (i >= n || resz[i] !== '=') continue // érték nélküli attribútum — kihagyjuk
+    i++
+    while (i < n && whitespace(resz[i])) i++
+    if (i >= n) break
+    const idezo = resz[i]
+    if (idezo !== '"' && idezo !== "'") break
+    const zaro = resz.indexOf(idezo, i + 1)
+    if (zaro < 0) break
+    if (nev && !nev.startsWith('xmlns')) ki[lokalisNev(nev)] = dekodolEntitasok(resz.slice(i + 1, zaro))
+    i = zaro + 1
+  }
+  return ki
+}
+
+/**
+ * A teljes XML-t fává parsolja. Az attribútumokat 2026-09-03-tól TÁROLJUK
+ * (`attr`), idézőjel-tudatosan — az attribútum-értékben lévő '>' nem
+ * zavarhatja meg a szkennelést.
  *
  * Hibás (nem well-formed) bemenetre XmlHiba-t dob — a hívó elkapja.
  */
@@ -169,7 +225,7 @@ function parseXmlFa(xml: string): XmlElem {
   // UTF-8 BOM átlépése
   if (n > 0 && xml.charCodeAt(0) === 0xfeff) i = 1
 
-  const gyoker: XmlElem = { nev: '#gyoker', gyerekek: [], szoveg: '' }
+  const gyoker: XmlElem = { nev: '#gyoker', gyerekek: [], szoveg: '', attr: {} }
   const verem: XmlElem[] = [gyoker]
 
   while (i < n) {
@@ -266,7 +322,12 @@ function parseXmlFa(xml: string): XmlElem {
       while (nevVege < belso.length && !whitespace(belso[nevVege])) nevVege++
       const teljesNev = belso.slice(0, nevVege)
       if (!teljesNev) throw new XmlHiba('üres tag-név')
-      const elem: XmlElem = { nev: lokalisNev(teljesNev), gyerekek: [], szoveg: '' }
+      const elem: XmlElem = {
+        nev: lokalisNev(teljesNev),
+        gyerekek: [],
+        szoveg: '',
+        attr: parseAttributumok(belso.slice(nevVege)),
+      }
       verem[verem.length - 1].gyerekek.push(elem)
       if (!onzaro) {
         verem.push(elem)
@@ -287,6 +348,22 @@ function parseXmlFa(xml: string): XmlElem {
 // ─────────────────────────────────────────────────────────────────
 // Fa-lekérdező segédek (a böngészős parser findFirst-mintájára)
 // ─────────────────────────────────────────────────────────────────
+
+/**
+ * KÖZVETLEN gyerek adott localName-mel (nem mélységi!). A sortételekhez ez
+ * kell: az `elsoElem` mélységi keresője a `Price/PriceAmount`-ot és a
+ * `LineExtensionAmount`-ot összekeverhetné, vagy egy al-elem `ID`-ját adná
+ * a sor `ID`-ja helyett.
+ */
+function kozvetlen(e: XmlElem, nev: string): XmlElem | null {
+  for (const gy of e.gyerekek) if (gy.nev === nev) return gy
+  return null
+}
+
+/** MINDEN közvetlen gyerek adott localName-mel, sorrendben. */
+function kozvetlenMind(e: XmlElem, nev: string): XmlElem[] {
+  return e.gyerekek.filter((gy) => gy.nev === nev)
+}
 
 /** Az első elem a részfában (mélységi bejárás) adott localName-mel. */
 function elsoElem(e: XmlElem, nev: string): XmlElem | null {
@@ -352,6 +429,8 @@ export function parseUblSzamla(xmlText: string, fallbackUuid?: string | null): U
     vevoNev: null,
     vevoCui: null,
     vegosszeg: null,
+    hivatkozottSzamla: null,
+    elojel: 1,
     parseError: null,
   }
 
@@ -439,7 +518,314 @@ export function parseUblSzamla(xmlText: string, fallbackUuid?: string | null): U
       szamErtek(elsoElem(osszesito, 'TaxInclusiveAmount'))
   }
 
+  // ─── Hivatkozott eredeti számla (sztornó / jóváírás) ───
+  // KÖZVETLEN gyerek: a sor-szintű (InvoiceLine alatti) hivatkozásokat nem
+  // keverjük ide — az a dokumentum-szintű „mit sztornóz" kérdés.
+  for (const gy of root.gyerekek) {
+    if (gy.nev !== 'BillingReference') continue
+    const ref = kozvetlen(gy, 'InvoiceDocumentReference')
+    const id = szovege(ref ? kozvetlen(ref, 'ID') : null)
+    if (id) { meta.hivatkozottSzamla = id; break }
+  }
+
+  // ─── ELŐJEL-TUDATOS TÍPUS (2026-09-04, valódi ANAF-exporton mérve) ───
+  // A román kiállítók a sztornót gyakran `InvoiceTypeCode 380`-as Invoice-ként
+  // adják NEGATÍV tételekkel — a gyökér-elem tehát HAZUDIK a szerepről. Ha a
+  // végösszeg negatív, az jóváírás, akárhogy hívják a gyökeret.
+  if (meta.vegosszeg != null && meta.vegosszeg < 0) {
+    meta.elojel = -1
+    if (meta.tipus === 'szamla') meta.tipus = 'jovairo'
+  }
+
   return meta
+}
+
+// ─────────────────────────────────────────────────────────────────
+// RÉSZLETES KINYERÉS — a nyomtatható számla-adatlaphoz (2026-09-03)
+// ─────────────────────────────────────────────────────────────────
+//
+// Endre kérése: a faktúra nyomtatási képe legyen az ANAF/Oblio-féle
+// e-Factura-laphoz hasonló — sortételekkel, felekkel, ÁFA-bontással.
+// A `szallitoi_szamla` tábla CSAK fejléc-szintű adatot tárol; a sortételek,
+// a címek, az IBAN és az ÁFA-bontás KIZÁRÓLAG a tárolt e-Factura XML-ben
+// vannak. Ez a függvény azokat nyeri ki — a lap betöltésekor, új tábla és
+// séma-változtatás NÉLKÜL (az eredeti XML marad az egyetlen igazságforrás).
+//
+// ⛔ Az összegek mellett a DEVIZA is megy (`currencyID` attribútum): egy
+//    EUR-számla tételei EUR-ban vannak, és úgy is kell kiírni őket.
+
+/** Egy fél (szállító vagy vevő) postacíme és elérhetőségei — mind opcionális. */
+export interface UblFel {
+  nev: string | null
+  /** CUI/CIF (PartyTaxScheme → PartyLegalEntity → PartyIdentification sorrendben). */
+  cui: string | null
+  /** Cégjegyzékszám (J40/…): cac:PartyLegalEntity/cbc:CompanyLegalForm. */
+  cegjegyzek: string | null
+  utca: string | null
+  varos: string | null
+  iranyitoszam: string | null
+  /** Megye (cbc:CountrySubentity) — a román CIUS itt a megye-kódot adja (CV, B, …). */
+  megye: string | null
+  orszag: string | null
+  telefon: string | null
+  email: string | null
+  /** cac:PartyIdentification/cbc:ID — az Oblio „Identificator client"-je. */
+  azonosito: string | null
+}
+
+export interface UblTetel {
+  sorszam: string | null
+  megnevezes: string | null
+  leiras: string | null
+  mennyiseg: number | null
+  /** UN/ECE Rec 20 kód (H87 = darab, XPP = csomag, C62 = egység…). */
+  mertekegyseg: string | null
+  /** Nettó egységár (cac:Price/cbc:PriceAmount). */
+  egysegar: number | null
+  /** A sor nettó értéke (cbc:LineExtensionAmount). */
+  netto: number | null
+  /** ÁFA-kulcs % (cac:Item/cac:ClassifiedTaxCategory/cbc:Percent). */
+  afaSzazalek: number | null
+  /** ÁFA-kategória (S = normál, Z = 0%, E = mentes, AE = fordított, O = nem tárgya). */
+  afaKategoria: string | null
+  /** A sor ÁFA-összege, HA a kiállító megadta (cac:TaxTotal a soron) — különben null. */
+  afa: number | null
+  penznem: string | null
+}
+
+export interface UblAfaBontas {
+  alap: number | null
+  afa: number | null
+  szazalek: number | null
+  kategoria: string | null
+  penznem: string | null
+}
+
+export interface UblOsszesito {
+  /** cbc:LineExtensionAmount — a tételek nettó összege. */
+  tetelekNetto: number | null
+  /** cbc:TaxExclusiveAmount — nettó a kedvezmények/felárak után. */
+  netto: number | null
+  /** cbc:TaxInclusiveAmount — bruttó. */
+  brutto: number | null
+  kedvezmeny: number | null
+  felar: number | null
+  /** cbc:PrepaidAmount — előleg. */
+  eloleg: number | null
+  /** cbc:PayableAmount — a ténylegesen fizetendő. */
+  fizetendo: number | null
+  /** /TaxTotal/cbc:TaxAmount — ÁFA összesen. */
+  afaOsszesen: number | null
+  penznem: string | null
+}
+
+export interface UblSzamlaReszletek {
+  fej: UblSzamlaMeta
+  szallito: UblFel
+  vevo: UblFel
+  /** A szállító bankszámlái (cac:PaymentMeans/cac:PayeeFinancialAccount/cbc:ID). */
+  iban: string[]
+  bic: string | null
+  tetelek: UblTetel[]
+  afaBontas: UblAfaBontas[]
+  osszesito: UblOsszesito
+  /** cac:PaymentTerms/cbc:Note — fizetési feltétel szövege. */
+  fizetesiFeltetel: string | null
+  /** /cbc:Note — a kiállító szabad megjegyzései. */
+  megjegyzesek: string[]
+  /** /cbc:BuyerReference — az Oblio „Referinta cumparator"-a. */
+  vevoHivatkozas: string | null
+  /** cac:OrderReference/cbc:ID — megrendelés-szám. */
+  megrendelesSzam: string | null
+  /** Egyetlen ÁFA-kulcs, ha MINDEN tétel ugyanazt viseli (az Oblio fejléc-felirata). */
+  egysegesAfaKulcs: number | null
+  parseError: string | null
+}
+
+function penznemOf(e: XmlElem | null, alap: string | null): string | null {
+  const c = e?.attr.currencyID
+  return typeof c === 'string' && c.trim() ? c.trim().toUpperCase() : alap
+}
+
+function uresFel(): UblFel {
+  return {
+    nev: null, cui: null, cegjegyzek: null, utca: null, varos: null, iranyitoszam: null,
+    megye: null, orszag: null, telefon: null, email: null, azonosito: null,
+  }
+}
+
+/** Román cégjegyzékszám: J14/145/2013, F12/3/2020, C40/7/2019 (regisztráló hivatal/sorszám/év). */
+const CEGJEGYZEK_RE = /^[JFC]\s?\d{1,2}\s?\/\s?\d{1,6}\s?\/\s?\d{4}$/i
+
+function felOf(partyBurok: XmlElem | null): UblFel {
+  const fel = uresFel()
+  const party = partyBurok ? kozvetlen(partyBurok, 'Party') : null
+  if (!party) return fel
+  const partyName = kozvetlen(party, 'PartyName')
+  const legal = kozvetlen(party, 'PartyLegalEntity')
+  const tax = kozvetlen(party, 'PartyTaxScheme')
+  const ident = kozvetlen(party, 'PartyIdentification')
+  fel.nev = szovege(partyName ? kozvetlen(partyName, 'Name') : null)
+    ?? szovege(legal ? kozvetlen(legal, 'RegistrationName') : null)
+  const taxCui = szovege(tax ? kozvetlen(tax, 'CompanyID') : null)
+  const legalId = szovege(legal ? kozvetlen(legal, 'CompanyID') : null)
+  const legalForm = szovege(legal ? kozvetlen(legal, 'CompanyLegalForm') : null)
+  fel.cui = taxCui ?? legalId ?? szovege(ident ? kozvetlen(ident, 'ID') : null)
+  // 2026-09-04 (valódi exporton mérve): a cégjegyzékszám (J14/145/2013) a
+  // PartyLegalEntity/CompanyID-ban áll, AMIKOR a CUI már a PartyTaxScheme-ben
+  // van; a CompanyLegalForm a legtöbb kiállítónál a törzstőke szövege
+  // („Capital social: 200 LEI") — azt Reg. com.-ként kiírni hamis adat lenne.
+  // Csak J/F/C-mintájú értéket fogadunk el, bárhonnan is jön.
+  fel.cegjegyzek =
+    (legalId && legalId !== fel.cui && CEGJEGYZEK_RE.test(legalId) ? legalId : null)
+    ?? (legalForm && CEGJEGYZEK_RE.test(legalForm) ? legalForm : null)
+  fel.azonosito = szovege(ident ? kozvetlen(ident, 'ID') : null)
+  const cim = kozvetlen(party, 'PostalAddress')
+  if (cim) {
+    // StreetName + AdditionalStreetName + AddressLine/Line — ami van, azt összefűzzük.
+    const reszek = [
+      szovege(kozvetlen(cim, 'StreetName')),
+      szovege(kozvetlen(cim, 'AdditionalStreetName')),
+      ...kozvetlenMind(cim, 'AddressLine').map((al) => szovege(kozvetlen(al, 'Line'))),
+    ].filter((x): x is string => !!x)
+    fel.utca = reszek.length > 0 ? reszek.join(', ') : null
+    fel.varos = szovege(kozvetlen(cim, 'CityName'))
+    fel.iranyitoszam = szovege(kozvetlen(cim, 'PostalZone'))
+    fel.megye = szovege(kozvetlen(cim, 'CountrySubentity'))
+    const orszag = kozvetlen(cim, 'Country')
+    fel.orszag = szovege(orszag ? kozvetlen(orszag, 'IdentificationCode') : null)
+  }
+  const kontakt = kozvetlen(party, 'Contact')
+  if (kontakt) {
+    fel.telefon = szovege(kozvetlen(kontakt, 'Telephone'))
+    fel.email = szovege(kozvetlen(kontakt, 'ElectronicMail'))
+  }
+  return fel
+}
+
+/**
+ * A nyomtatható adatlap TELJES adatkészlete egy UBL 2.1 XML-ből. SOHA nem dob:
+ * hibánál a `parseError` mező magyarul jelez, és ami kinyerhető volt, az a
+ * mezőkben marad (részleges adat > semmi — de a hívó a hibát KÖTELES kiírni,
+ * hogy egy csonka lap ne látszódjon teljesnek).
+ */
+export function parseUblSzamlaReszletek(xmlText: string, fallbackUuid?: string | null): UblSzamlaReszletek {
+  const fej = parseUblSzamla(xmlText, fallbackUuid)
+  const ki: UblSzamlaReszletek = {
+    fej,
+    szallito: uresFel(),
+    vevo: uresFel(),
+    iban: [],
+    bic: null,
+    tetelek: [],
+    afaBontas: [],
+    osszesito: {
+      tetelekNetto: null, netto: null, brutto: null, kedvezmeny: null, felar: null,
+      eloleg: null, fizetendo: null, afaOsszesen: null, penznem: fej.penznem,
+    },
+    fizetesiFeltetel: null,
+    megjegyzesek: [],
+    vevoHivatkozas: null,
+    megrendelesSzam: null,
+    egysegesAfaKulcs: null,
+    parseError: fej.parseError,
+  }
+  if (fej.parseError) return ki
+
+  let root: XmlElem
+  try {
+    root = parseXmlFa(xmlText)
+  } catch (e) {
+    ki.parseError = `XML-hiba: ${e instanceof XmlHiba ? e.message : e instanceof Error ? e.message : String(e)}`
+    return ki
+  }
+  const alapPenznem = fej.penznem
+
+  ki.szallito = felOf(kozvetlen(root, 'AccountingSupplierParty'))
+  ki.vevo = felOf(kozvetlen(root, 'AccountingCustomerParty'))
+
+  // ─── Fizetés: IBAN(ok), BIC, fizetési feltétel ───
+  for (const pm of kozvetlenMind(root, 'PaymentMeans')) {
+    const szamla = kozvetlen(pm, 'PayeeFinancialAccount')
+    const iban = szovege(szamla ? kozvetlen(szamla, 'ID') : null)
+    if (iban && !ki.iban.includes(iban)) ki.iban.push(iban)
+    const fiok = szamla ? kozvetlen(szamla, 'FinancialInstitutionBranch') : null
+    if (!ki.bic && fiok) ki.bic = szovege(kozvetlen(fiok, 'ID'))
+  }
+  const pt = kozvetlen(root, 'PaymentTerms')
+  ki.fizetesiFeltetel = szovege(pt ? kozvetlen(pt, 'Note') : null)
+  ki.megjegyzesek = kozvetlenMind(root, 'Note').map(szovege).filter((x): x is string => !!x)
+  ki.vevoHivatkozas = szovege(kozvetlen(root, 'BuyerReference'))
+  const rendeles = kozvetlen(root, 'OrderReference')
+  ki.megrendelesSzam = szovege(rendeles ? kozvetlen(rendeles, 'ID') : null)
+
+  // ─── Sortételek: Invoice → InvoiceLine/InvoicedQuantity; CreditNote → CreditNoteLine/CreditedQuantity ───
+  const sorNev = root.nev === 'CreditNote' ? 'CreditNoteLine' : 'InvoiceLine'
+  const mennyNev = root.nev === 'CreditNote' ? 'CreditedQuantity' : 'InvoicedQuantity'
+  for (const sor of kozvetlenMind(root, sorNev)) {
+    const menny = kozvetlen(sor, mennyNev)
+    const netto = kozvetlen(sor, 'LineExtensionAmount')
+    const item = kozvetlen(sor, 'Item')
+    const ar = kozvetlen(sor, 'Price')
+    const kat = item ? kozvetlen(item, 'ClassifiedTaxCategory') : null
+    const sorAfa = kozvetlen(sor, 'TaxTotal')
+    ki.tetelek.push({
+      sorszam: szovege(kozvetlen(sor, 'ID')),
+      megnevezes: szovege(item ? kozvetlen(item, 'Name') : null),
+      leiras: szovege(item ? kozvetlen(item, 'Description') : null),
+      mennyiseg: szamErtek(menny),
+      mertekegyseg: (menny?.attr.unitCode || '').trim() || null,
+      egysegar: szamErtek(ar ? kozvetlen(ar, 'PriceAmount') : null),
+      netto: szamErtek(netto),
+      afaSzazalek: szamErtek(kat ? kozvetlen(kat, 'Percent') : null),
+      afaKategoria: szovege(kat ? kozvetlen(kat, 'ID') : null),
+      afa: szamErtek(sorAfa ? kozvetlen(sorAfa, 'TaxAmount') : null),
+      penznem: penznemOf(netto, alapPenznem),
+    })
+  }
+
+  // ─── ÁFA-bontás (a dokumentum-szintű TaxTotal alatt — a soron belülieket kihagyjuk) ───
+  for (const tt of kozvetlenMind(root, 'TaxTotal')) {
+    const ossz = kozvetlen(tt, 'TaxAmount')
+    if (ki.osszesito.afaOsszesen == null) ki.osszesito.afaOsszesen = szamErtek(ossz)
+    for (const st of kozvetlenMind(tt, 'TaxSubtotal')) {
+      const kat = kozvetlen(st, 'TaxCategory')
+      const alapE = kozvetlen(st, 'TaxableAmount')
+      ki.afaBontas.push({
+        alap: szamErtek(alapE),
+        afa: szamErtek(kozvetlen(st, 'TaxAmount')),
+        szazalek: szamErtek(kat ? kozvetlen(kat, 'Percent') : null),
+        kategoria: szovege(kat ? kozvetlen(kat, 'ID') : null),
+        penznem: penznemOf(alapE, alapPenznem),
+      })
+    }
+  }
+
+  // ─── Összesítő ───
+  const lmt = kozvetlen(root, 'LegalMonetaryTotal')
+  if (lmt) {
+    const fiz = kozvetlen(lmt, 'PayableAmount')
+    ki.osszesito = {
+      tetelekNetto: szamErtek(kozvetlen(lmt, 'LineExtensionAmount')),
+      netto: szamErtek(kozvetlen(lmt, 'TaxExclusiveAmount')),
+      brutto: szamErtek(kozvetlen(lmt, 'TaxInclusiveAmount')),
+      kedvezmeny: szamErtek(kozvetlen(lmt, 'AllowanceTotalAmount')),
+      felar: szamErtek(kozvetlen(lmt, 'ChargeTotalAmount')),
+      eloleg: szamErtek(kozvetlen(lmt, 'PrepaidAmount')),
+      fizetendo: szamErtek(fiz),
+      afaOsszesen: ki.osszesito.afaOsszesen,
+      penznem: penznemOf(fiz, alapPenznem),
+    }
+  }
+
+  // ─── Egységes ÁFA-kulcs (az Oblio fejléce: „Cota TVA (21% - Normala)") ───
+  const kulcsok = new Set(ki.tetelek.map((t) => t.afaSzazalek).filter((x): x is number => x != null))
+  if (kulcsok.size === 1) ki.egysegesAfaKulcs = [...kulcsok][0]
+  else if (kulcsok.size === 0 && ki.afaBontas.length === 1 && ki.afaBontas[0].szazalek != null) {
+    ki.egysegesAfaKulcs = ki.afaBontas[0].szazalek
+  }
+
+  return ki
 }
 
 // ─────────────────────────────────────────────────────────────────
@@ -525,18 +911,52 @@ export function anafUuidFajlnevbol(fajlnev: string): string | null {
       }
     }
   }
+  // 2026-09-04 (valódi ANAF SPV-exporton mérve): az UTOLSÓ 8+ jegyű futam.
+  // Az ANAF neve `<CÉG>_<SOROZAT>_<INDEX>.xml`, ahol az INDEX az utolsó rész.
+  // Az ELSŐ futam a SOROZAT belsejéből is jöhet (LIDL `1038726021242`,
+  // Electrica `EFI2613512321`) — az nem ANAF-index, hanem a szállító saját
+  // számlaszáma, és ELTÉR attól, amit a PDF-párosító (utolsó rész) használ.
+  const futamok = szamFutamok(alap)
+  if (futamok.length > 0) return futamok[futamok.length - 1]
+  // ⛔ NINCS visszaesés a csupasz fájlnévre (lásd a fenti magyarázatot).
+  return null
+}
+
+/** Minden ≥8 jegyű számjegy-futam a névben, sorrendben (regex nélkül). */
+function szamFutamok(alap: string): string[] {
+  const ki: string[] = []
   let futam = ''
   for (let i = 0; i <= alap.length; i++) {
     const c = i < alap.length ? alap[i] : ' '
     if (c >= '0' && c <= '9') {
       futam += c
     } else {
-      if (futam.length >= 8) return futam
+      if (futam.length >= 8) ki.push(futam)
       futam = ''
     }
   }
-  // ⛔ NINCS visszaesés a csupasz fájlnévre (lásd a fenti magyarázatot).
-  return null
+  return ki
+}
+
+/**
+ * A 2026-09-04 ELŐTTI kulcsképzés: az ELSŐ 8+ jegyű futam. CSAK a duplikátum-
+ * ellenőrzés RÉGI ÁGÁHOZ — az élesben már rögzített sorok ezzel a kulccsal
+ * állnak (UNIQUE (congregation_id, anaf_uuid)). Ha az import csak az új kulcsot
+ * nézné, egy újraimport NEM találná a régi sort, és MÁSODIK tartozást szúrna be.
+ * Új sor SOHA nem kaphatja ezt a kulcsot.
+ */
+export function anafUuidFajlnevbolElso(fajlnev: string): string | null {
+  let alap = fajlnev
+  let valtozott = true
+  while (valtozott) {
+    valtozott = false
+    const kis = alap.toLowerCase()
+    for (const kit of ['.zip', '.xml', '.pdf']) {
+      if (kis.endsWith(kit)) { alap = alap.slice(0, alap.length - kit.length); valtozott = true; break }
+    }
+  }
+  const futamok = szamFutamok(alap)
+  return futamok.length > 0 ? futamok[0] : null
 }
 
 /**
