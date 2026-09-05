@@ -30,7 +30,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import type { User } from '@supabase/supabase-js'
 import { getVersion } from '@tauri-apps/api/app'
-import { ClipboardList, Users, Wallet } from 'lucide-react'
+import { Church, ClipboardList, Link2, RefreshCw, Users, Wallet, Wifi, WifiOff } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 
 import { Button, Card, CardContent } from '@kartoteka/ui'
@@ -50,11 +50,20 @@ import {
 } from '@kartoteka/ui-app'
 
 import { DesktopShell } from '../lib/shell/desktop-shell'
+import { isOfflineMode, offlineBelepesEngedett } from '../lib/auth-pin'
 import { calculateAgeDistribution } from '../lib/dashboard-helpers'
 import { getDesktopUser } from '../lib/desktop-user'
+import { ELSO_INDITAS_UT } from '../lib/elso-inditas'
+import { errorMessage } from '../lib/error'
+import { getOutboxStats, type OutboxStats } from '../lib/local-db'
 import { getLocalTodayNamedayNames } from '../lib/nevnap-sync'
 import { printHtmlViaIframe } from '../lib/print-html'
+import { analyzeSession, type SessionInfo } from '../lib/session-state'
+import { getDesktopSupabase } from '../lib/supabase'
 import {
+  getLastPullIso,
+  getLastPullMembersIso,
+  getLastPullWorklogIso,
   getLocalCsaladokCount,
   getLocalElkoltozottek,
   getLocalMembersOfOwnCongregation,
@@ -62,6 +71,7 @@ import {
   getLocalOwnProfile,
   getLocalPrograms,
   getLocalWorklogOfOwnCongregation,
+  getOutboxSyncStatus,
   type MemberLocalRow,
 } from '../lib/sync'
 import { useDataVersion } from '../lib/sync-orchestrator'
@@ -396,35 +406,234 @@ export function HomePage() {
           </CardContent>
         </Card>
 
-        {/* Info-doboz */}
-        <Card className="card-raised border-0 border-amber-100">
-          <CardContent className="flex items-start gap-3 p-4">
-            <span className="mt-0.5 flex size-8 items-center justify-center rounded-full bg-amber-100 text-amber-700">
-              ℹ️
-            </span>
-            <div className="flex-1 text-xs text-slate-700">
-              <p className="font-medium text-slate-800">Fejlesztői állapot</p>
-              <p className="mt-1 leading-snug">
-                A desktop app jelenleg <strong>{appVersion ? `v${appVersion}` : 'fejlesztői'}</strong>{' '}
-                verzióban fut. Tagnyilvántartás, családok, munkanapló, pénzügy (7 oldal),
-                anyakönyv (8 tábla), leltár, iktató, jegyzőkönyvek, sírhelyek és éves
-                jelentés mind elérhetők offline-ban. Az adatok automatikusan
-                szinkronizálódnak percenként a háttérben — az alsó állapotsávon látszik,
-                mikor frissültek utoljára. <strong>Tipp:</strong> az offline belépési
-                kódot a rendszer megjegyzi a saját számítógépeden („Emlékezz erre a gépre"
-                pipa) — ha elfelejtetted, az „Elfelejtettem" gomb után online belépéssel
-                új kódot állíthatsz be.
-              </p>
-              <div className="mt-3 flex gap-2">
-                <Button size="sm" variant="outline" onClick={() => navigate('/dev')}>
-                  Fejlesztői eszközök
-                </Button>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
+        {/* Kapcsolat állapota — a korábbi „Fejlesztői állapot" doboz helyett
+            (2026-09-05, desk-firstrun-18): a lelkész főoldalán a fiók–gép
+            kapcsolat lényege látszik, a /dev link a Beállítások → Adat &
+            biztonság aljára költözött. */}
+        <KapcsolatAllapotaKartya
+          userId={user?.id ?? null}
+          congregationName={congregationName}
+          appVersion={appVersion}
+          dataVersion={dataVersion}
+          onOnlineBelepes={() => navigate(`${ELSO_INDITAS_UT}?lepes=belepes`)}
+        />
       </div>
     </DesktopShell>
+  )
+}
+
+// ──────────────────────────────────────────────────────────────
+// Kapcsolat állapota kártya
+// ──────────────────────────────────────────────────────────────
+
+interface KapcsolatAllapotaProps {
+  userId: string | null
+  congregationName: string | null
+  appVersion: string | null
+  /** Minden sikeres háttér-szinkron után változik → újraolvassuk az időbélyegeket. */
+  dataVersion: number
+  onOnlineBelepes: () => void
+}
+
+const SESSION_TIMEOUT_MS = 4000
+
+/** A Beállítások → Fiók / Kapcsolat fül megnyitása (a shell figyeli az eseményt). */
+function nyitFiokBeallitasokat(): void {
+  window.dispatchEvent(new CustomEvent('kartoteka:open-settings', { detail: { tab: 'fiok' } }))
+}
+
+function formatIsoIdopont(iso: string | null): string {
+  if (!iso) return 'még sosem'
+  const d = new Date(iso)
+  if (Number.isNaN(d.getTime())) return 'ismeretlen'
+  return d.toLocaleString('hu-HU', { dateStyle: 'short', timeStyle: 'short' })
+}
+
+/**
+ * Online/offline + utolsó szinkron + gyülekezet + függő tételek — a MEGLÉVŐ
+ * forrásokból (analyzeSession, settings-tábla last_pull kulcsai, outbox-
+ * statisztika, outbox-futás állapota). Nem indít szinkront és nem hoz létre
+ * második orchestrator-példányt (az a fejléc állapotsávjában él).
+ */
+function KapcsolatAllapotaKartya({ userId, congregationName, appVersion, dataVersion, onOnlineBelepes }: KapcsolatAllapotaProps) {
+  const [sessionInfo, setSessionInfo] = useState<SessionInfo | null>(null)
+  const [halozat, setHalozat] = useState<boolean>(() => (typeof navigator !== 'undefined' ? navigator.onLine : true))
+  const [utolsoSzinkron, setUtolsoSzinkron] = useState<string | null>(null)
+  const [outbox, setOutbox] = useState<OutboxStats | null>(null)
+  const [outboxFut, setOutboxFut] = useState(false)
+  const [hiba, setHiba] = useState<string | null>(null)
+  // A helyi (PIN-es) munkamenet érvényessége: a remember-jelző PIN nélkül
+  // érvénytelen — az offlineBelepesEngedett önjavítóan törli, itt csak jelezzük.
+  const [helyiErvenytelen, setHelyiErvenytelen] = useState(false)
+
+  // Hálózat-figyelés (a navigator.onLine csak a fizikai kapcsolat; a felhő-
+  // belépést a sessionInfo mondja meg).
+  useEffect(() => {
+    const be = () => setHalozat(true)
+    const ki = () => setHalozat(false)
+    window.addEventListener('online', be)
+    window.addEventListener('offline', ki)
+    return () => {
+      window.removeEventListener('online', be)
+      window.removeEventListener('offline', ki)
+    }
+  }, [])
+
+  // Munkamenet (időkorláttal) + a helyi munkamenet PIN-hez kötése
+  useEffect(() => {
+    let mounted = true
+    const supabase = getDesktopSupabase()
+    void (async () => {
+      try {
+        const res = await Promise.race([
+          supabase.auth.getSession(),
+          new Promise<null>((resolve) => {
+            window.setTimeout(() => resolve(null), SESSION_TIMEOUT_MS)
+          }),
+        ])
+        const s = res && 'data' in res ? res.data.session : null
+        if (!mounted) return
+        setSessionInfo(analyzeSession(s))
+        if (!s && isOfflineMode()) {
+          const rendben = await offlineBelepesEngedett()
+          if (mounted) setHelyiErvenytelen(!rendben)
+        }
+      } catch {
+        if (mounted) setSessionInfo(analyzeSession(null))
+      }
+    })()
+    const { data: sub } = supabase.auth.onAuthStateChange((_event, s) => {
+      if (!mounted) return
+      setSessionInfo(analyzeSession(s))
+      if (s) setHelyiErvenytelen(false)
+    })
+    return () => {
+      mounted = false
+      sub.subscription.unsubscribe()
+    }
+  }, [])
+
+  // Utolsó szinkron + függő tételek — minden dataVersion-változásra újra
+  useEffect(() => {
+    if (!userId) return
+    let mounted = true
+    void (async () => {
+      try {
+        const [profil, tagok, naplo, stats] = await Promise.all([
+          getLastPullIso(),
+          getLastPullMembersIso(userId),
+          getLastPullWorklogIso(userId),
+          getOutboxStats(),
+        ])
+        if (!mounted) return
+        // A legfrissebb a három közül (a light-bundle percenként húzza mindhármat).
+        const idok = [profil, tagok, naplo].filter((x): x is string => Boolean(x)).sort()
+        setUtolsoSzinkron(idok.length > 0 ? idok[idok.length - 1] : null)
+        setOutbox(stats)
+        setOutboxFut(getOutboxSyncStatus().running)
+        setHiba(null)
+      } catch (err: unknown) {
+        if (mounted) setHiba(`Az állapot nem olvasható: ${errorMessage(err)}`)
+      }
+    })()
+    return () => {
+      mounted = false
+    }
+  }, [userId, dataVersion])
+
+  const online = sessionInfo?.kind === 'online'
+  const fuggo = outbox ? outbox.pending + outbox.failed : null
+  const allapotCim = sessionInfo === null
+    ? 'Ellenőrzés…'
+    : online
+      ? 'Online — összekapcsolva a fiókoddal'
+      : sessionInfo.kind === 'offline-pin'
+        ? halozat
+          ? 'Helyi munkamenet — a felhő-belépés lejárt'
+          : 'Offline — nincs internet'
+        : 'Kijelentkezve'
+  const allapotOsztaly = online
+    ? 'border-emerald-300/60 bg-emerald-50 text-emerald-900 dark:border-emerald-700/50 dark:bg-emerald-950/30 dark:text-emerald-100'
+    : 'border-amber-300/70 bg-amber-50 text-amber-900 dark:border-amber-700/60 dark:bg-amber-950/30 dark:text-amber-100'
+
+  return (
+    <Card className="card-raised border-0">
+      <CardContent className="p-5">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+          <div className="flex min-w-0 items-start gap-3">
+            <span className={`mt-0.5 flex size-9 shrink-0 items-center justify-center rounded-full border ${allapotOsztaly}`}>
+              {online ? <Wifi className="size-4" /> : <WifiOff className="size-4" />}
+            </span>
+            <div className="min-w-0">
+              <h2 className="font-heading text-xl text-foreground">Kapcsolat állapota</h2>
+              <p className={`mt-1 inline-block rounded-md border px-2 py-0.5 text-xs font-medium ${allapotOsztaly}`}>
+                {allapotCim}
+              </p>
+            </div>
+          </div>
+          <div className="flex shrink-0 flex-col gap-2 sm:flex-row">
+            {sessionInfo && !online && halozat && (
+              <Button type="button" className="min-h-11" onClick={onOnlineBelepes}>
+                <Link2 className="mr-2 size-4" /> Online belépés
+              </Button>
+            )}
+            <Button type="button" variant="outline" className="min-h-11" onClick={nyitFiokBeallitasokat}>
+              Fiók / Kapcsolat
+            </Button>
+          </div>
+        </div>
+
+        <dl className="mt-4 grid gap-3 text-sm sm:grid-cols-3">
+          <div className="rounded-[0.8rem] border border-border bg-secondary/40 px-3 py-2">
+            <dt className="flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+              <RefreshCw className={`size-3.5 ${outboxFut ? 'animate-spin' : ''}`} /> Utolsó szinkron
+            </dt>
+            <dd className="mt-0.5 text-foreground">{formatIsoIdopont(utolsoSzinkron)}</dd>
+          </div>
+          <div className="rounded-[0.8rem] border border-border bg-secondary/40 px-3 py-2">
+            <dt className="flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+              <Church className="size-3.5" /> Gyülekezet
+            </dt>
+            <dd className="mt-0.5 truncate text-foreground" title={congregationName ?? undefined}>
+              {congregationName ?? 'nincs hozzárendelve'}
+            </dd>
+          </div>
+          <div className="rounded-[0.8rem] border border-border bg-secondary/40 px-3 py-2">
+            <dt className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Függő tételek</dt>
+            <dd className={`mt-0.5 ${outbox && outbox.failed > 0 ? 'text-destructive' : 'text-foreground'}`}>
+              {fuggo === null
+                ? '…'
+                : fuggo === 0
+                  ? 'nincs — minden fent van'
+                  : `${outbox!.pending} vár feltöltésre${outbox!.failed > 0 ? `, ${outbox!.failed} hibás` : ''}`}
+            </dd>
+          </div>
+        </dl>
+
+        {helyiErvenytelen && (
+          <p role="alert" className="mt-3 rounded-md border border-amber-300/70 bg-amber-50 px-3 py-2 text-xs text-amber-900 dark:border-amber-700/60 dark:bg-amber-950/30 dark:text-amber-100">
+            A helyi munkamenet biztonsági kód nélkül fut (a kód időközben törlődött) — a következő indításkor
+            újra össze kell kapcsolnod a gépet a fiókoddal. Az „Emlékezz erre a gépre" jelzést töröltük.
+          </p>
+        )}
+        {hiba && (
+          <p role="alert" className="mt-3 text-xs text-destructive">
+            {hiba}
+          </p>
+        )}
+        {outbox && outbox.failed > 0 && (
+          <p className="mt-3 text-xs text-muted-foreground">
+            A hibás tételek részletei és újraküldése: Beállítások → Adat &amp; biztonság → Fejlesztői eszközök.
+          </p>
+        )}
+
+        <p className="mt-3 text-[11px] text-muted-foreground">
+          Kartotéka asztali alkalmazás {appVersion ? `v${appVersion}` : '(fejlesztői változat)'} · az adatok
+          percenként szinkronizálódnak a háttérben, ha van felhő-kapcsolat; offline rögzítés a következő
+          csatlakozáskor megy fel.
+        </p>
+      </CardContent>
+    </Card>
   )
 }
 

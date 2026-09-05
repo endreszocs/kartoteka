@@ -216,21 +216,43 @@ export function DesktopBudgetTab({ userId, ...props }: DesktopBudgetTabProps) {
             if (recipients && recipients.length > 0) {
               const docLabel = DOC_LABELS[docType] ?? docType
               const modSuffix = modNum ? ` (${modNum}. módosítás)` : ''
-              await supabase.from('ertesitesek').insert(
-                recipients.map((r) => ({
-                  user_id: r.id,
-                  congregation_id: congregationId,
-                  cim: `Új beküldés: ${docLabel}${modSuffix} — ${congName}`,
-                  uzenet:
-                    `${congName} beküldte a(z) ${year}. évi ${docLabel.toLowerCase()}${modSuffix} ` +
-                    `dokumentumot az egyházmegyének. Részletek: Egyházmegyei áttekintő.`,
-                  tipus: 'info',
-                  hivatkozas: '/dashboard-egyhazmegye',
-                })),
-              )
+              const alapSorok = recipients.map((r) => ({
+                user_id: r.id,
+                congregation_id: congregationId,
+                cim: `Új beküldés: ${docLabel}${modSuffix} — ${congName}`,
+                uzenet:
+                  `${congName} beküldte a(z) ${year}. évi ${docLabel.toLowerCase()}${modSuffix} ` +
+                  `dokumentumot az egyházmegyének. Részletek: Egyházmegyei áttekintő.`,
+                tipus: 'info',
+                hivatkozas: '/dashboard-egyhazmegye',
+              }))
+              // 2026-09-05: a FELADÓ a beküldő gyülekezet — a három feladó-mező
+              // SZÓ SZERINT (az asztali app nem importálhat az apps/web
+              // `feladoMezok()` segédjéből; a kulcsok = az ertesitesek oszlopai).
+              const feladoMezok = {
+                felado_tipus: 'gyulekezet',
+                felado_nev: congName,
+                felado_id: congregationId,
+              }
+              const { error: ertErr } = await supabase
+                .from('ertesitesek')
+                .insert(alapSorok.map((s) => ({ ...s, ...feladoMezok })))
+              if (ertErr) {
+                // MIGRÁCIÓ ELŐTTI VISSZAESÉS: ha a feladó-oszlopok még nincsenek az
+                // adatbázisban (2026-09-05-ertesitesek-felado.sql), a sor nélkülük
+                // megy be — az üzenet kézbesül, a feladót a visszatöltés adja rá.
+                const oszlopHianyzik = /felado_/i.test(`${ertErr.message ?? ''} ${ertErr.details ?? ''}`)
+                if (!oszlopHianyzik) {
+                  console.warn('[desktop-budget] a beküldés-értesítés nem ment ki:', ertErr.message)
+                } else {
+                  const { error: masodik } = await supabase.from('ertesitesek').insert(alapSorok)
+                  if (masodik) console.warn('[desktop-budget] a beküldés-értesítés nem ment ki:', masodik.message)
+                }
+              }
             }
-          } catch {
-            /* nem kritikus */
+          } catch (e) {
+            // A beküldés már sikeres — de a hallgatás tilos.
+            console.warn('[desktop-budget] a beküldés-értesítés nem ment ki:', errorMessage(e))
           }
 
           return { success: true }

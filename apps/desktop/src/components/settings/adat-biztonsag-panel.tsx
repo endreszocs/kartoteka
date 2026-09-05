@@ -4,10 +4,16 @@
  * 5 szinoptikus kártya a desktop-kliens sync / DB / eszköz-állapotáról.
  * A KOMPLEX műveletek (retry outbox, teljes device-lista, frissítési flow)
  * a `/dev` route-ra vannak hivatkozva — a Settings-ben csak gyors áttekintés
- * + egyszerű action-ök.
+ * + egyszerű action-ök; a `/dev` linkje a panel ALJÁN él (2026-09-05: a
+ * főoldali „Fejlesztői állapot" doboz helyett — a lelkész főoldala nem
+ * fejlesztői felület).
+ *
+ * A 2FA-útjelző kártya 2026-09-05-től a Fiók / Kapcsolat fülön van (a fiók
+ * dolgai egy helyen: profil, gyülekezet, munkamenet, PIN, 2FA).
  */
 
 import { useCallback, useEffect, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import {
   AlertTriangle,
   CheckCircle2,
@@ -17,7 +23,7 @@ import {
   Monitor,
   RefreshCw,
   Shield,
-  ShieldCheck,
+  Wrench,
 } from 'lucide-react'
 import type { User } from '@supabase/supabase-js'
 
@@ -25,7 +31,6 @@ import { Button } from '@kartoteka/ui'
 
 import { errorMessage } from '../../lib/error'
 import { getDbStatus, getOutboxStats, type OutboxStats } from '../../lib/local-db'
-import { getDesktopSupabase } from '../../lib/supabase'
 import { getDesktopUser } from '../../lib/desktop-user'
 import {
   flushAllPendingWrites,
@@ -37,7 +42,13 @@ import {
 } from '../../lib/sync'
 import { getDeviceInfo, type DeviceInfo } from '../../lib/device'
 
-export function AdatBiztonsagPanel() {
+export interface AdatBiztonsagPanelProps {
+  /** A dialógus bezárása navigálás előtt (fejlesztői eszközök). */
+  onRequestClose?: () => void
+}
+
+export function AdatBiztonsagPanel({ onRequestClose }: AdatBiztonsagPanelProps = {}) {
+  const navigate = useNavigate()
   const [user, setUser] = useState<User | null>(null)
   const [online, setOnline] = useState<boolean | null>(null)
   const [dbOpened, setDbOpened] = useState<boolean | null>(null)
@@ -47,11 +58,6 @@ export function AdatBiztonsagPanel() {
 
   const [syncing, setSyncing] = useState(false)
   const [syncMsg, setSyncMsg] = useState<string | null>(null)
-  // 2026-08-15 (desktop-paritás 1. szelet, 8. pont útjelző): a kétlépcsős
-  // belépés (2FA) állapota — null = ellenőrzés fut, 'ismeretlen' = PIN-es
-  // (offline) munkamenet vagy hiba, ilyenkor NEM állítunk hamis „nincs
-  // bekapcsolva"-t.
-  const [ketlepcsos, setKetlepcsos] = useState<'aktiv' | 'inaktiv' | 'ismeretlen' | null>(null)
 
   // Auth + online + DB + outbox + device — egyszerre töltjük be
   useEffect(() => {
@@ -69,45 +75,6 @@ export function AdatBiztonsagPanel() {
       })
       .catch(() => {
         /* csendes */
-      })
-    return () => {
-      mounted = false
-    }
-  }, [])
-
-  // 2026-08-15 (desktop-paritás 1. szelet): 2FA-állapot — CSAK tájékoztató.
-  // Ugyanaz az olvasás, mint az auth-gate aal-őrében: a `nextLevel === 'aal2'`
-  // jelzi, hogy a fióknak van ellenőrzött 2FA-faktora. Session nélkül (PIN-es
-  // offline munkamenet) az állapot nem dönthető el → 'ismeretlen', őszintén
-  // kiírva. A be-/kikapcsolás a webes felületen történik (Profil → Biztonság).
-  useEffect(() => {
-    let mounted = true
-    const supabase = getDesktopSupabase()
-    // Timeout-tal (mint a verified-session): a getSession lejárt tokennél
-    // hálózati refresh-t indíthat — a Beállítások panel ne függjön rajta.
-    const timeout = new Promise<null>((resolve) => {
-      setTimeout(() => resolve(null), 4000)
-    })
-    void Promise.race([supabase.auth.getSession(), timeout])
-      .then((res) => {
-        const session = res && 'data' in res ? res.data.session : null
-        if (!session) {
-          if (mounted) setKetlepcsos('ismeretlen')
-          return null
-        }
-        return supabase.auth.mfa.getAuthenticatorAssuranceLevel()
-      })
-      .then((aalRes) => {
-        if (!mounted || !aalRes) return
-        const aal = 'data' in aalRes ? aalRes.data : null
-        if (!aal) {
-          setKetlepcsos('ismeretlen')
-          return
-        }
-        setKetlepcsos(aal.nextLevel === 'aal2' ? 'aktiv' : 'inaktiv')
-      })
-      .catch(() => {
-        if (mounted) setKetlepcsos('ismeretlen')
       })
     return () => {
       mounted = false
@@ -289,39 +256,6 @@ export function AdatBiztonsagPanel() {
         }
       />
 
-      {/* Kétlépcsős belépés (2FA) — útjelző kártya (8. pont): az állapotot
-          mutatja, a kezelés webes. A belépési kód-lépcső magát a login-oldal
-          + az auth-gate aal-őre adja (PR #158). */}
-      <StatusCard
-        icon={<ShieldCheck className="size-4" />}
-        title="Kétlépcsős belépés (2FA)"
-        status={ketlepcsos === 'aktiv' ? 'ok' : 'neutral'}
-        statusText={
-          ketlepcsos === null
-            ? 'Ellenőrzés…'
-            : ketlepcsos === 'aktiv'
-              ? 'Aktív a fiókodon'
-              : ketlepcsos === 'inaktiv'
-                ? 'Nincs bekapcsolva'
-                : 'Csak online belépéssel ellenőrizhető'
-        }
-        description={
-          ketlepcsos === 'aktiv'
-            ? 'Online belépéskor az asztali alkalmazás is kéri a hitelesítő alkalmazás 6 jegyű kódját (vagy egy mentőkódot) — a fiókod ezzel erősebben védett.'
-            : ketlepcsos === 'inaktiv'
-              ? 'A fiókod jelenleg csak jelszóval védett. A kétlépcsős belépés bekapcsolása erősen ajánlott — pár perc, és a webes felületen elvégezhető.'
-              : ketlepcsos === 'ismeretlen'
-                ? 'PIN-es (offline) munkamenetben az állapot nem olvasható ki — online belépés után frissül.'
-                : 'Az állapot ellenőrzése folyamatban.'
-        }
-        extra={
-          <div className="rounded-[0.8rem] border border-border bg-muted/40 px-3 py-2 text-[11px] text-foreground">
-            A be- és kikapcsolás, a QR-kód és a mentőkódok kezelése a webes felületen
-            történik: <strong>kartoteka.app → Profil → Biztonság</strong>.
-          </div>
-        }
-      />
-
       {/* Biztonsági info-doboz */}
       <div className="rounded-[1rem] border border-slate-100 bg-slate-50/60 p-3">
         <div className="mb-2 flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-600">
@@ -346,6 +280,38 @@ export function AdatBiztonsagPanel() {
             updater manifest
           </li>
         </ul>
+      </div>
+
+      {/* Fejlesztői eszközök — a /dev oldal linkje (2026-09-05: a főoldalról
+          ide költözött; a részletes outbox-, eszköz- és szinkron-diagnosztika
+          ott él). Tudatosan a panel ALJÁN, szolid gombként. */}
+      <div className="rounded-[1.2rem] border border-border bg-card p-4">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex items-start gap-2.5">
+            <span className="mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-full bg-secondary text-foreground">
+              <Wrench className="size-4" />
+            </span>
+            <div className="min-w-0">
+              <h4 className="text-sm font-semibold text-foreground">Fejlesztői eszközök</h4>
+              <p className="mt-1 text-[11px] leading-snug text-muted-foreground">
+                Részletes szinkron-, outbox- és eszköz-diagnosztika, hibás sorok újraküldése. Csak
+                hibakereséshez — a rendszergazda kérheti, hogy nézz ide.
+              </p>
+            </div>
+          </div>
+          <Button
+            type="button"
+            variant="outline"
+            className="min-h-11 shrink-0"
+            onClick={() => {
+              onRequestClose?.()
+              navigate('/dev')
+            }}
+          >
+            <Wrench className="mr-2 size-4" />
+            Megnyitás
+          </Button>
+        </div>
       </div>
     </div>
   )

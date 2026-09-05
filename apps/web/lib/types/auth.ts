@@ -16,6 +16,8 @@ export type Role =
 export type ProfileStatus = 'pending' | 'active'
 
 export interface Profile {
+  /** 2026-09-05: optimista egyidejűség-kapu a profil-mentéshez (profiles.revision). */
+  revision?: number | null
   id: string
   email: string | null
   full_name: string | null

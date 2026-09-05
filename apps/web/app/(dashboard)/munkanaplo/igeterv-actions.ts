@@ -22,6 +22,8 @@ import { z } from 'zod'
 import { selectAllPaged } from '@kartoteka/supabase-client'
 
 import { getEffectiveCongregationContext } from '@/lib/auth/effective-access'
+import { feladoMezok } from '@/lib/notifications/felado'
+import { insertErtesites } from '@/lib/notifications/ertesites-insert'
 import type {
   SermonPlan,
   SermonPlanInput,
@@ -132,15 +134,22 @@ export async function listSermonPlans(year: number): Promise<SermonPlanListResul
     if (!stamped || stamped.length === 0) continue // más betöltés már elvitte
 
     const cimResz = [p.alkalom, p.cim].filter(Boolean).join(' — ')
-    const { error: notifErr } = await supabase.from('ertesitesek').insert({
-      user_id: creatorById.get(p.id) || user.id,
-      cim: 'Igehirdetési emlékeztető',
-      uzenet: `${p.datum} (${p.napszak}): ${cimResz || 'tervezett alkalom'}${p.textus ? ` · Textus: ${p.textus}` : ''}${p.enekek ? ` · Énekek: ${p.enekek}` : ''}`,
-      tipus: 'info',
-      hivatkozas: '/munkanaplo',
-      olvasva: false,
-    })
-    if (!notifErr) remindersSent += 1
+    const emlekezteto = await insertErtesites(
+      supabase,
+      {
+        user_id: creatorById.get(p.id) || user.id,
+        congregation_id: congregationId,
+        cim: 'Igehirdetési emlékeztető',
+        uzenet: `${p.datum} (${p.napszak}): ${cimResz || 'tervezett alkalom'}${p.textus ? ` · Textus: ${p.textus}` : ''}${p.enekek ? ` · Énekek: ${p.enekek}` : ''}`,
+        tipus: 'info',
+        hivatkozas: '/munkanaplo',
+        olvasva: false,
+        // Gépi emlékeztető — a feladó a rendszer, nem a lelkész, aki az oldalt megnyitotta.
+        ...feladoMezok('rendszer'),
+      },
+      { forras: 'igeterv-emlekezteto' },
+    )
+    if (!emlekezteto.error) remindersSent += 1
   }
 
   return { plans, remindersSent }

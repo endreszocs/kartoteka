@@ -182,3 +182,71 @@ export async function logMfaEsemeny(esemeny: 'bekapcsolva' | 'kikapcsolva'): Pro
     supabase,
   )
 }
+
+// ─────────────────────────────────────────────────────────────────────────
+// 2026-09-05 — ASZTALI ESZKÖZÖK (a device-flow-val összekapcsolt gépek)
+// ─────────────────────────────────────────────────────────────────────────
+
+export interface DesktopEszkoz {
+  id: string
+  eszkozNev: string | null
+  felhasznalvaAt: string | null
+}
+
+/** A fiókhoz kapcsolt asztali gépek — az RLS csak a saját, felhasznált sorokat adja. */
+export async function listDesktopEszkozok(): Promise<{ eszkozok?: DesktopEszkoz[]; error?: string }> {
+  const supabase = await createClient()
+  const {
+    data: { user },
+  } = await supabase.auth.getUser()
+  if (!user) return { error: 'Nincs bejelentkezett felhasználó.' }
+
+  const { data, error } = await supabase
+    .from('desktop_kapcsolas')
+    .select('id, eszkoz_nev, felhasznalva_at')
+    .eq('user_id', user.id)
+    .eq('allapot', 'felhasznalva')
+    .order('felhasznalva_at', { ascending: false })
+    .limit(50)
+  if (error) {
+    // Tipikusan: a 2026-09-05-desktop-kapcsolas.sql még nem futott le.
+    return { error: 'Az eszközlista most nem érhető el. (Lefutott már a 2026-09-05-ös asztali kapcsolás migráció?)' }
+  }
+  return {
+    eszkozok: ((data ?? []) as Array<{ id: string; eszkoz_nev: string | null; felhasznalva_at: string | null }>).map((r) => ({
+      id: r.id,
+      eszkozNev: r.eszkoz_nev,
+      felhasznalvaAt: r.felhasznalva_at,
+    })),
+  }
+}
+
+/** A gép kivétele a listából (a bejelentkezését NEM szünteti meg — arra a másik gomb való). */
+export async function elfelejtDesktopEszkozt(id: string): Promise<{ ok?: boolean; error?: string }> {
+  const supabase = await createClient()
+  const {
+    data: { user },
+  } = await supabase.auth.getUser()
+  if (!user) return { error: 'Nincs bejelentkezett felhasználó.' }
+  const { error } = await supabase.from('desktop_kapcsolas').delete().eq('id', id).eq('user_id', user.id)
+  if (error) return { error: 'A törlés nem sikerült.' }
+  await logAuditEvent({ action: 'desktop.eszkoz_elfelejtve', targetTable: 'desktop_kapcsolas', targetId: id })
+  return { ok: true }
+}
+
+/**
+ * Minden MÁS munkamenet megszüntetése (asztali gépek, telefon, másik böngésző).
+ * Ez a böngésző bejelentkezve marad. Az asztali app a helyi PIN-nel tovább
+ * dolgozik, de a felhő-szinkronhoz újra össze kell kapcsolni.
+ */
+export async function kijelentkeztetMasEszkozoket(): Promise<{ ok?: boolean; error?: string }> {
+  const supabase = await createClient()
+  const {
+    data: { user },
+  } = await supabase.auth.getUser()
+  if (!user) return { error: 'Nincs bejelentkezett felhasználó.' }
+  const { error } = await supabase.auth.signOut({ scope: 'others' })
+  if (error) return { error: `A kijelentkeztetés nem sikerült: ${error.message}` }
+  await logAuditEvent({ action: 'auth.mas_eszkozok_kijelentkeztetve', targetTable: 'auth.sessions' })
+  return { ok: true }
+}

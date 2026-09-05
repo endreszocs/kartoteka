@@ -31,14 +31,31 @@ const programBase = z.object({
   megjegyzes: z.string().optional().or(z.literal('')),
 })
 
-export const programSchema = programBase.refine(
-  (data) => !(data.datum_vege && data.datum_vege < data.datum),
-  { message: 'A záró dátum nem lehet a kezdő dátum előtt', path: ['datum_vege'] }
-)
+/**
+ * 2026-09-05: a KÖZÖS sorrend-szabályok — egy helyen a sima és a tömeges séma
+ * számára (a két refine eddig másolat volt).
+ *  · datum_vege >= datum (ez volt eddig is);
+ *  · ismetlodes_vege >= datum — e nélkül a sorozat 0 alkalommal bomlott ki, és
+ *    a program MINDEN nézetből némán eltűnt (a felmérés P1-találata);
+ *  · egynapos alkalomnál ido_befejezes >= ido_kezdes — az ICS különben
+ *    éjszakába nyúlónak vette, az agenda „20:00–08:00"-t írt. Többnapos
+ *    programnál (datum_vege > datum) az átnyúlás megengedett.
+ */
+function programSorrendSzabalyok(data: z.infer<typeof programBase>, ctx: z.RefinementCtx): void {
+  if (data.datum_vege && data.datum_vege < data.datum) {
+    ctx.addIssue({ code: 'custom', message: 'A záró dátum nem lehet a kezdő dátum előtt', path: ['datum_vege'] })
+  }
+  if (data.ismetlodes_tipus && data.ismetlodes_vege && data.ismetlodes_vege < data.datum) {
+    ctx.addIssue({ code: 'custom', message: 'Az ismétlődés vége nem lehet az első alkalom előtt', path: ['ismetlodes_vege'] })
+  }
+  const egynapos = !data.datum_vege || data.datum_vege === data.datum
+  if (egynapos && data.ido_kezdes && data.ido_befejezes && data.ido_befejezes < data.ido_kezdes) {
+    ctx.addIssue({ code: 'custom', message: 'A befejezés nem lehet a kezdés előtt (egynapos alkalomnál)', path: ['ido_befejezes'] })
+  }
+}
+
+export const programSchema = programBase.superRefine(programSorrendSzabalyok)
 export type ProgramInput = z.infer<typeof programSchema>
 
-export const batchRowSchema = programBase.omit({ id: true }).refine(
-  (data) => !(data.datum_vege && data.datum_vege < data.datum),
-  { message: 'A záró dátum nem lehet a kezdő dátum előtt', path: ['datum_vege'] }
-)
+export const batchRowSchema = programBase.omit({ id: true }).superRefine(programSorrendSzabalyok)
 export type BatchRowInput = z.infer<typeof batchRowSchema>

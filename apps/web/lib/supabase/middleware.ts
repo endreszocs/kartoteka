@@ -64,6 +64,15 @@ function isPublicCalendarRoute(pathname: string): boolean {
   return pathname.startsWith('/api/calendar/')
 }
 
+// ASZTALI ESZKÖZ-KAPCSOLÁS API (2026-09-05) — az asztali alkalmazás hívja,
+// ahol MÉG NINCS munkamenet (épp azt hozzuk létre). A védelem az útvonalban
+// van: 256 bites, csak hash-ben tárolt kód + IP-hash spam-fék + 10 perces
+// lejárat; jóváhagyni CSAK bejelentkezve, a /desktop-kapcsolas oldalon lehet,
+// ami a rendes (dashboard) kapuk mögött él.
+function isDesktopKapcsolasApiRoute(pathname: string): boolean {
+  return pathname.startsWith('/api/desktop-kapcsolas/')
+}
+
 // Éves beszámoló kivetítő/prezenter oldalak — más eszközről (telefon/tablet/
 // okos-TV) is elérhetők, a tartalmat a valós idejű csatornán kapják, ezért
 // auth nélkül átengedjük (2026-06-08).
@@ -221,6 +230,11 @@ export async function updateSession(request: NextRequest) {
 
   // Nyilvános naptár-feed (ICS) → mindig átengedünk (token kapuzza)
   if (isPublicCalendarRoute(pathname)) {
+    return supabaseResponse
+  }
+
+  // Asztali eszköz-kapcsolás API → átengedjük (a kód és a spam-fék kapuzza)
+  if (isDesktopKapcsolasApiRoute(pathname)) {
     return supabaseResponse
   }
 

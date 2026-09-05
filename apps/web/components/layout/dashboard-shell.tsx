@@ -152,17 +152,24 @@ export function DashboardShell({
     function handleOpenCongregationSetupWizard() {
       setCongregationSetupWizardOpen(true)
     }
+    // 2026-09-05 (profil-kör D10): a /profile hero „Adatok szerkesztése" gombja
+    // ugyanezen a csatornán kéri a profil-dialógust — a dialógus EGY helyen él.
+    function handleOpenProfileDialog() {
+      setProfileOpen(true)
+    }
     window.addEventListener('kartoteka:open-congregation-dialog', handleOpenCongregationDialog)
     window.addEventListener(
       'kartoteka:open-congregation-setup-wizard',
       handleOpenCongregationSetupWizard,
     )
+    window.addEventListener('kartoteka:open-profile-dialog', handleOpenProfileDialog)
     return () => {
       window.removeEventListener('kartoteka:open-congregation-dialog', handleOpenCongregationDialog)
       window.removeEventListener(
         'kartoteka:open-congregation-setup-wizard',
         handleOpenCongregationSetupWizard,
       )
+      window.removeEventListener('kartoteka:open-profile-dialog', handleOpenProfileDialog)
     }
   }, [])
 

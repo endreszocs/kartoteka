@@ -873,7 +873,11 @@ export async function saveBaptism(data: BaptismInput) {
 
   revalidatePath('/anyakonyv')
   revalidatePath('/munkanaplo')
-  return { success: true, warning: familyWarning ?? undefined, worklogEntry: worklogEntry ?? undefined }
+  // 2026-09-05 (naptár ⇄ anyakönyv): a beszúrt/frissített sor `id`-ja is
+  // visszamegy — a naptár-csempéről indított anyakönyvezés ezzel köti a
+  // TERVEZETT programot a bejegyzéshez (kapcsolProgramAnyakonyvhoz). A többi
+  // mező betűre a korábbi.
+  return { success: true, id: baptismRowId ?? undefined, warning: familyWarning ?? undefined, worklogEntry: worklogEntry ?? undefined }
 }
 
 // ── Család automatikus létrehozás (keresztelés) ──────────────
@@ -1382,7 +1386,8 @@ export async function saveMarriage(data: MarriageInput) {
   revalidatePath('/anyakonyv')
   revalidatePath('/tagnyilvantartas')
   revalidatePath('/munkanaplo')
-  return { success: true, warning: familyWarning ?? undefined, worklogEntry: worklogEntry ?? undefined }
+  // 2026-09-05 (naptár ⇄ anyakönyv): a sor `id`-ja is visszamegy (program-kötéshez).
+  return { success: true, id: marriageRowId ?? undefined, warning: familyWarning ?? undefined, worklogEntry: worklogEntry ?? undefined }
 }
 
 // ── Temetés mentés ───────────────────────────────────────────
@@ -1568,6 +1573,8 @@ export async function saveBurial(data: BurialInput) {
   revalidatePath('/munkanaplo')
   return {
     success: true,
+    // 2026-09-05 (naptár ⇄ anyakönyv): a sor `id`-ja is visszamegy (program-kötéshez).
+    id: burialRowId ?? undefined,
     warning: figyelmeztetesek.length > 0 ? figyelmeztetesek.join(' ') : undefined,
     worklogEntry: worklogEntry ?? undefined,
   }
@@ -1708,7 +1715,10 @@ export async function saveConfirmationBatch(data: ConfirmationBatchInput) {
   revalidatePath('/anyakonyv')
   revalidatePath('/munkanaplo')
   revalidatePath('/tagnyilvantartas')
-  return { success: true, count: newCandidates.length, warning: voterKonfirmacio.warning }
+  // 2026-09-05 (naptár ⇄ anyakönyv): a beszúrt sorok `id`-jai is visszamennek.
+  // A tömeges konfirmáció EGY alkalom — a program-kötés az ELSŐ sor id-ján áll
+  // (a naptár-réteg a napot csoportosítja, bármelyik sor id-ját felismeri).
+  return { success: true, count: newCandidates.length, id: insertedIds[0], ids: insertedIds, warning: voterKonfirmacio.warning }
 }
 
 // ── Konfirmáció EGYETLEN bejegyzés szerkesztés (✏️ gomb) ─────
@@ -1737,7 +1747,7 @@ export async function saveConfirmationSingle(data: ConfirmationSingleInput) {
 
   revalidatePath('/anyakonyv')
   revalidatePath('/tagnyilvantartas')
-  return { success: true, warning: voterKonfirmacio.warning }
+  return { success: true, id: d.id, warning: voterKonfirmacio.warning }
 }
 
 // ── Bejegyzés törlés ─────────────────────────────────────────
@@ -1783,6 +1793,26 @@ export async function deleteRegistryEntry(tab: string, id: number) {
   const { error } = await supabase.from(tab).delete().eq('id', id).eq('congregation_id', congId)
   if (error) return { error: `Hiba: ${error.message}` }
 
+  // 2026-09-05 (naptár ⇄ anyakönyv, cal-registry-12): a TERVEZETT program
+  // `anyakonyv_tabla/anyakonyv_id` linkje NEM idegen kulcs (négy táblára
+  // mutathat), ezért a hard delete után ÁRVÁN maradna — a naptár egy már nem
+  // létező bejegyzésre írná ki, hogy „anyakönyvezve". A kapcsolatot bontjuk; a
+  // program (a terv) megmarad. A bontás hibája NEM blokkol (a sor már törölve),
+  // de nem is néma: figyelmeztetésként visszaadjuk. A migráció ELŐTTI
+  // adatbázison (nincs még link-oszlop) nincs mit bontani — az csendes.
+  let linkWarning: string | undefined
+  if (hasWorklogLink) {
+    const { error: linkErr } = await supabase
+      .from('gyulekezeti_programok')
+      .update({ anyakonyv_tabla: null, anyakonyv_id: null, updated_at: new Date().toISOString() })
+      .eq('congregation_id', congId)
+      .eq('anyakonyv_tabla', tab)
+      .eq('anyakonyv_id', id)
+    if (linkErr && !/anyakonyv_tabla|anyakonyv_id/.test(linkErr.message)) {
+      linkWarning = `A bejegyzés törölve, de a hozzá kötött naptár-program kapcsolatának bontása nem sikerült: ${linkErr.message}`
+    }
+  }
+
   if (deletedCouple?.ferfi && deletedCouple?.no) {
     try {
       await closeMarriageEdgeBetween(supabase, deletedCouple.ferfi, deletedCouple.no)
@@ -1807,5 +1837,6 @@ export async function deleteRegistryEntry(tab: string, id: number) {
 
   revalidatePath('/anyakonyv')
   revalidatePath('/munkanaplo')
-  return { success: true }
+  revalidatePath('/dashboard')
+  return { success: true, warning: linkWarning }
 }

@@ -430,8 +430,11 @@ export function FamiliesPage() {
             onSaved={() => {
               notifyLocalDataChanged()
               // Manuálisan is indítunk egy sync-kört (különben a pending csak
-              // 30 s múlva próbálkozik):
-              void runCsaladSyncManually()
+              // 30 s múlva próbálkozik). Az időtúllépés nem néma (konzol), de
+              // a mentést nem buktatja el.
+              runCsaladSyncManually().catch((err: unknown) => {
+                console.warn('[families-page] a mentés utáni háttér-push jelzett:', err instanceof Error ? err.message : String(err))
+              })
             }}
             onClose={() => setCreateOpen(false)}
           />

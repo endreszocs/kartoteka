@@ -180,19 +180,39 @@ function orszem(nev, pred, joForras, mutans) {
 
   // ── SZ4: fejléc-címke — az `admin` a RENDSZERGAZDA, nem a kerületi admin ────
   //
-  // A web fejléc a KANONIKUS térképet importálja (nincs saját listája); a közös
+  // A web fejléc a KANONIKUS térképből címkéz (nincs saját listája); a közös
   // (desktop) fejléc nem importálhat az apps/web-ből, ezért ott másolat van.
+  // 2026-09-05 (profil-kör D7): a fejléc már nem közvetlenül a ROLE_LABELS-t
+  // olvassa, hanem az EGYETLEN címke-modult (lib/profile-roles/labels.ts →
+  // getRoleLabel), amely maga importálja a kanonikus ROLE_LABELS-t. Az őr a
+  // LÁNCOT ellenőrzi: fejléc → labels.ts → types.ts; bármelyik szem hiánya bukás.
+  const roleLabels = olvasForras('apps', 'web', 'lib', 'profile-roles', 'labels.ts')
   orszem(
     'SZ4a a web fejléc a kanonikus ROLE_LABELS-ből veszi a címkét (nincs saját, elavuló listája)',
     (src) => {
       const tiszta = kommentNelkul(src)
       if (/admin:\s*'Kerületi admin'/.test(tiszta)) return false
-      return /ROLE_LABELS[\s\S]{0,80}from '@\/lib\/profile-roles\/types'/.test(tiszta)
+      const kozvetlen = /ROLE_LABELS[\s\S]{0,80}from '@\/lib\/profile-roles\/types'/.test(tiszta)
+      const modulon = /getRoleLabel[\s\S]{0,80}from '@\/lib\/profile-roles\/labels'/.test(tiszta)
+      return kozvetlen || modulon
     },
     webHeader,
     (webHeader || '').replace(
-      /import \{ ROLE_LABELS, type ProfileRoleRow \} from '@\/lib\/profile-roles\/types'/,
-      "import type { ProfileRoleRow } from '@/lib/profile-roles/types'\nconst ROLE_LABELS = { admin: 'Kerületi admin' }",
+      /import \{ getRoleLabel \} from '@\/lib\/profile-roles\/labels'/,
+      "const getRoleLabel = (r) => ({ admin: 'Kerületi admin' })[r]",
+    ),
+  )
+  orszem(
+    'SZ4a2 a közös címke-modul (labels.ts) a kanonikus ROLE_LABELS-t importálja — a lánc nem szakad',
+    (src) => {
+      const tiszta = kommentNelkul(src)
+      if (/admin:\s*'Kerületi admin'/.test(tiszta)) return false
+      return /ROLE_LABELS[\s\S]{0,120}from '@\/lib\/profile-roles\/types'/.test(tiszta)
+    },
+    roleLabels,
+    (roleLabels || '').replace(
+      /import \{ ROLE_LABELS, SCOPE_LABELS,/,
+      "const ROLE_LABELS = { admin: 'Kerületi admin' }\nimport { SCOPE_LABELS,",
     ),
   )
   orszem(

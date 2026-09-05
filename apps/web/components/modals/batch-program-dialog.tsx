@@ -12,8 +12,27 @@ import {
   PROGRAM_PRIORITIES, PROG_PRIORITAS_LABELS,
   ISMETLODES_TYPES, ISMETLODES_LABELS,
 } from '@/lib/constants/dashboard'
+import type { ProgramTipus } from '@/lib/constants/dashboard'
 import type { ProgramInput } from '@/lib/validations/dashboard'
 import { toast } from 'sonner'
+
+/**
+ * 2026-09-05 (cal-ux-15): a fájlból beolvasott típusnév SZINONIMÁI — ékezet
+ * és kis/nagybetű nélkül normalizált kulcsokkal (lásd `norm()`). A lelkész
+ * Excelje „Keresztelő"-t, „Házasságkötés"-t, „Ifi"-t ír, nem a belső kódot.
+ * Ami ezen és a hivatalos címkéken kívül esik, az NEM lesz némán „Egyéb":
+ * a beolvasás végén figyelmeztető toast sorolja fel.
+ */
+const TIPUS_SZINONIMAK: Record<string, ProgramTipus> = {
+  keresztelo: 'kereszteles', kereszteles: 'kereszteles', keresztseg: 'kereszteles',
+  eskuvo: 'eskuvo', esketes: 'eskuvo', hazassagkotes: 'eskuvo', hazassag: 'eskuvo',
+  konfirmacio: 'konfirmacio', konfirmalas: 'konfirmacio',
+  temetes: 'temetes', gyaszszertartas: 'temetes',
+  szabadsag: 'szabadsag', szabi: 'szabadsag',
+  ifi: 'ifjusagi', ifjusag: 'ifjusagi', gyerek: 'gyerekprogram', gyermekprogram: 'gyerekprogram',
+  diakonia: 'diakoniai', presbiterium: 'presbiteri', presbiterigyules: 'presbiteri',
+  unnepi: 'unnep', unnepnap: 'unnep', koncert: 'hangverseny',
+}
 
 interface BatchRow {
   key: number
@@ -139,10 +158,18 @@ export function BatchProgramDialog({ open, onOpenChange, year }: BatchProgramDia
         if (!m) return ''
         return `${m[1]}-${m[2].padStart(2, '0')}-${m[3].padStart(2, '0')}`
       }
-      const tipusra = (v: string) => {
+      // Ismeretlen típusnevek gyűjtése — a beolvasás végén EGY figyelmeztetés
+      // sorolja fel őket (üres cella nem hiba: az „Egyéb" alapértelmezés).
+      const ismeretlenTipusok = new Set<string>()
+      const tipusra = (v: string): ProgramTipus => {
         const t = norm(v)
+        if (!t) return 'egyeb'
         const talalat = PROGRAM_TYPES.find((pt) => norm(PROG_TIPUS_LABELS[pt] || pt) === t || pt === t)
-        return talalat || 'egyeb'
+        if (talalat) return talalat
+        const szinonima = TIPUS_SZINONIMAK[t]
+        if (szinonima) return szinonima
+        ismeretlenTipusok.add(v.trim())
+        return 'egyeb'
       }
 
       let kihagyott = 0
@@ -176,6 +203,13 @@ export function BatchProgramDialog({ open, onOpenChange, year }: BatchProgramDia
       toast.success(
         `${ujSorok.length} sor beolvasva a fájlból${kihagyott > 0 ? ` (${kihagyott} hiányos sor kimaradt)` : ''} — ellenőrzés után mentsd.`,
       )
+      if (ismeretlenTipusok.size > 0) {
+        const lista = [...ismeretlenTipusok].slice(0, 6).map((s) => `„${s}"`).join(', ')
+        toast.warning(
+          `${ismeretlenTipusok.size} típusnevet nem ismertem fel (${lista}${ismeretlenTipusok.size > 6 ? ', …' : ''}) — ezek a sorok „Egyéb" típussal kerültek a rácsba, a Típus mezőben javítsd őket mentés előtt.`,
+          { duration: 12000 },
+        )
+      }
     } catch (e) {
       toast.error(`A fájl beolvasása nem sikerült: ${e instanceof Error ? e.message : 'ismeretlen hiba'}`)
     }

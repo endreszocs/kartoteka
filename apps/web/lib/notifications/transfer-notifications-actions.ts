@@ -34,6 +34,9 @@ import { getCongregationOfficials } from '@/lib/profiles/officials'
 import { createClient } from '@/lib/supabase/server'
 import { huDatumBukarest } from '@/lib/utils/idopont-bukarest'
 
+import { insertErtesites } from './ertesites-insert'
+import { feladoMezok } from './felado'
+
 // ─── Típusok ─────────────────────────────────────────────────────────────
 
 export interface MemberSnapshot {
@@ -331,45 +334,67 @@ export async function respondToTransferNotification(input: {
     const memberName = `${snapshot?.csaladnev || ''} ${snapshot?.k_nev || ''}`.trim() || 'tag'
     const statusText = result.data.status === 'accepted' ? 'elfogadta' : 'elutasította'
 
+    const one = (rel: CongNameRel | undefined): string | null => {
+      const row = Array.isArray(rel) ? rel[0] || null : rel || null
+      return (row?.nev_hu || '').trim() || (row?.name || '').trim() || null
+    }
+    // A hívó a FOGADÓ gyülekezet tagja — a neve az effektív kontextusból is
+    // feloldható, ha a join-os snapshot nem jött össze.
+    const fogadoNev =
+      one(notificationSnapshot?.target_congregation) || access.congregationName || 'gyülekezetünk'
+    const kuldoNev = one(notificationSnapshot?.source_congregation) || 'a küldő egyházközség'
+    // A FELADÓ a döntő (cél-) gyülekezet — a címzett a küldő gyülekezet lelkésze.
+    const feladoAdat = feladoMezok('gyulekezet', fogadoNev, result.data.target_congregation_id)
+    // ⚠️ 2026-09-05 (H3): ÉLŐ hivatkozás a kérelmek fülére, a kérelem azonosítójával.
+    //    Eddig `/notifications#<id>` állt itt — horgony, amit egyetlen elem sem
+    //    viselt, ráadásul a kérelmek fül alapból nem is látszott.
+    const kerelemLink = `/notifications?ful=kerelmek&kerelem=${result.data.notification_id}`
+
     // Best effort: az átjelentkezési döntés már sikeresen, atomikusan lezárult.
     // Egy értesítési hiba ezért nem fordíthatja vissza és nem jelezheti sikertelennek.
+    //
+    // ⚠️ 2026-09-05 (H3): CÍMZETT-FELOLDÁS. Eddig ez a sor `user_id: null`-lal
+    //    készült — bevallottan EGYETLEN harangban sem jelent meg, mert minden
+    //    olvasó `user_id`-ra szűr. Most a küldő gyülekezet aktív lelkészei kapják,
+    //    ugyanazzal a `get_congregation_officials` RPC-vel, amivel lentebb a
+    //    válaszlevél címzettjeit keressük.
     try {
-      await supabase.from('ertesitesek').insert([{
-        congregation_id: result.data.source_congregation_id,
-        cim: `Átjelentkezési kérelem ${statusText === 'elfogadta' ? 'elfogadva' : 'elutasítva'}: ${memberName}`,
-        uzenet: `A célgyülekezet ${statusText} ${memberName} átjelentkezési kérelmét.${
-          parsed.data.note ? ' Megjegyzés: ' + parsed.data.note : ''
-        }`,
-        tipus: result.data.status === 'accepted' ? 'info' : 'warning',
-        user_id: null,
-        // ⚠️ 2026-08-11 JAVÍTÁS: itt korábban `/notifications/sent#…` állt —
-        //    ILYEN ÚTVONAL NINCS (a `notifications` mappában csak `page.tsx` és
-        //    `actions.ts` van), tehát a „Megnyitás" gomb 404-re vitt volna.
-        //    Az „Elküldött" szekció a `/notifications` oldal átjelentkezés-fülén
-        //    van, horgonyként a kérelem azonosítójával.
-        // ⚠️ BEVALLOTT KORLÁT: a `user_id: null` miatt ez a sor EGYETLEN harangban
-        //    sem jelenik meg (a lekérdezés `user_id`-ra szűr) — a forrás-
-        //    gyülekezet lelkészét más úton (átjelentkezés-fül) éri el a hír.
-        //    Ezt külön szeletben kell rendezni: címzett-feloldás kell hozzá.
-        hivatkozas: `/notifications#${result.data.notification_id}`,
-      }])
-    } catch {
-      // Best effort: az RPC sikerét egy másodlagos értesítési hiba nem írhatja felül.
+      const forrasLelkeszek = await getCongregationOfficials(
+        supabase,
+        result.data.source_congregation_id,
+        ['lelkesz'],
+      )
+      const cimzettek = Array.from(new Set(forrasLelkeszek.map((o) => o.userId)))
+      if (cimzettek.length === 0) {
+        warnings.push('A küldő gyülekezethez nem található aktív lelkész-profil — a döntésről szóló értesítés nem ment ki (az átjelentkezés-fülön a döntés így is látszik).')
+      } else {
+        const dontes = await insertErtesites(
+          supabase,
+          cimzettek.map((uid) => ({
+            user_id: uid,
+            congregation_id: result.data.source_congregation_id,
+            cim: `Átjelentkezési kérelem ${statusText === 'elfogadta' ? 'elfogadva' : 'elutasítva'}: ${memberName}`,
+            uzenet: `A célgyülekezet ${statusText} ${memberName} átjelentkezési kérelmét.${
+              parsed.data.note ? ' Megjegyzés: ' + parsed.data.note : ''
+            }`,
+            tipus: result.data.status === 'accepted' ? 'info' : 'warning',
+            hivatkozas: kerelemLink,
+            ...feladoAdat,
+          })),
+          { forras: 'transfer-dontes' },
+        )
+        if (dontes.error) {
+          warnings.push(`A döntésről szóló értesítés a küldő gyülekezet lelkészének nem ment ki (${dontes.error}) — az átjelentkezés-fülön a döntés így is látszik.`)
+        }
+      }
+    } catch (e) {
+      warnings.push(`A döntésről szóló értesítés küldése nem sikerült (${e instanceof Error ? e.message : 'ismeretlen hiba'}) — az átjelentkezés-fülön a döntés így is látszik.`)
     }
 
     // ── F8c: ELFOGADÁS utáni formaságok (best-effort — a döntés már él) ──
     // Sorrend a kontraktus szerint: előbb a respond-RPC (fent, atomikus),
     // utána a formaságok — ezek egyike sem fordíthatja vissza az átvételt.
     if (result.data.status === 'accepted') {
-      const one = (rel: CongNameRel | undefined): string | null => {
-        const row = Array.isArray(rel) ? rel[0] || null : rel || null
-        return (row?.nev_hu || '').trim() || (row?.name || '').trim() || null
-      }
-      // A hívó a FOGADÓ gyülekezet tagja — a neve az effektív kontextusból is
-      // feloldható, ha a join-os snapshot nem jött össze.
-      const fogadoNev =
-        one(notificationSnapshot?.target_congregation) || access.congregationName || 'gyülekezetünk'
-      const kuldoNev = one(notificationSnapshot?.source_congregation) || 'a küldő egyházközség'
       // Az eredeti átadó iratszám a B3-as flow-ból: az elkoltozott.megjegyzes
       // („Egyháztag-átadási igazolás — iktatószám: ÉÉÉÉ/N") a trigger által a
       // member_snapshot.megjegyzes-be másolva. Import-úton érkezett kérelemnél
@@ -478,11 +503,12 @@ export async function respondToTransferNotification(input: {
             cim: `Átjelentkezés visszaigazolása érkezett: ${memberName}`,
             uzenet: htmlToPlainText(letterHtml),
             tipus: 'info',
-            hivatkozas: '/notifications',
+            hivatkozas: kerelemLink,
+            ...feladoAdat,
           }))
-          const { error: notifErr } = await supabase.from('ertesitesek').insert(rows)
-          if (notifErr) {
-            warnings.push(`A válaszlevél in-app kézbesítését az értesítés-tábla jogosultsági szabálya (RLS) elutasította (${notifErr.message}) — az általános visszaigazoló értesítés így is megjelenik a küldőnél.`)
+          const level = await insertErtesites(supabase, rows, { forras: 'transfer-valaszlevel' })
+          if (level.error) {
+            warnings.push(`A válaszlevél in-app kézbesítése nem sikerült (${level.error}) — az általános visszaigazoló értesítés így is megjelenik a küldőnél.`)
           }
         }
       } catch (e) {

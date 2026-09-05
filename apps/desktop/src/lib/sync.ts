@@ -13,8 +13,10 @@
  *   - isOnline()                       — online/offline detektor
  *
  * ## 2026-08-15 (a függő írások automatikus felküldése)
- *   - startOutboxAutoSync()            — indulás + `online` esemény + 30 mp poll,
- *                                        exponenciális visszalépéssel (AuthGate indítja)
+ *   - runOutboxSyncGuarded()           — egy őrzött kör (a `write-sync-registry`
+ *                                        közös triggerkészlete hívja: boot, `online`,
+ *                                        30 mp poll, lokális mentés); soronkénti
+ *                                        exponenciális visszalépés (2026-09-05)
  *   - flushAllPendingWrites(userId)    — a „Szinkronizálás most" közös helpere:
  *                                        klasszikus outbox + MINDEN dedikált push-er
  *   ⚠️ A `mutation_id`-s (pénzügyi) outbox-sorok NEM ide tartoznak — azokat
@@ -42,8 +44,17 @@
 
 import { errorMessage } from './error'
 import { getDesktopSupabase } from './supabase'
+import { isOnlineWithSession } from './use-session-online'
 import { getVerifiedSession } from './verified-session'
 import { dbExecute, dbExecuteMany, dbSelect, getSetting, setSetting, type SqlParam } from './local-db'
+import {
+  OUTBOX_MAX_PROBA,
+  notifyLocalWriteCommitted,
+  osztalyozSzinkronHiba,
+  outboxUjraprobalhato,
+  szelepDontes,
+  withSyncTimeout,
+} from './write-sync-registry'
 
 // ═════════════════════════════════════════════════════════════════════════
 // 2026-07-24 (PR-8, F9): lapozott Supabase-letöltés
@@ -265,7 +276,13 @@ export async function pullOwnProfile(userId: string): Promise<PullResult> {
        district_id = excluded.district_id,
        revision = excluded.revision,
        updated_at = excluded.updated_at,
-       synced_at = excluded.synced_at`,
+       synced_at = excluded.synced_at
+     WHERE NOT EXISTS (
+       SELECT 1 FROM outbox o
+        WHERE o.mutation_id IS NULL
+          AND o.status IN ('pending','failed')
+          AND o.target_table = 'profiles'
+          AND o.target_id = profiles_local.id)`,
     [
       data.id,
       data.email,
@@ -445,6 +462,8 @@ export interface OutboxRow {
   created_at: string
   retry_count: number
   last_error: string | null
+  /** Az utolsó (átmeneti hibával végződött) próbálkozás ideje — a visszalépés alapja. */
+  last_attempt_at: string | null
 }
 
 /** M2.6 outbox-payload forma: tartalmazza az elvárt revision-t. */
@@ -455,6 +474,11 @@ interface OutboxUpdatePayload {
 
 /**
  * Online-detektor: `navigator.onLine` + 2 mp-es HEAD-ping a Supabase /auth/v1/health-re.
+ *
+ * ⚠️ SESSION-VAK — csak HÁLÓZATOT mér. Az ÍRÁSI utak (2026-09-05, desk-sync-14)
+ * az `isOnlineWithSession()`-t használják: PIN-es (session nélküli) munkamenetben
+ * internettel is az OUTBOX-ág a helyes, különben anon kérés menne a szerverre,
+ * és a lelkész hamis „nincs jogosultságod" hibát kapna.
  */
 export async function isOnline(): Promise<boolean> {
   if (typeof navigator !== 'undefined' && navigator.onLine === false) {
@@ -533,7 +557,7 @@ export async function updateOwnProfile(
   const expectedRevision = local?.revision ?? 0
 
   // 3. Online? Conditional Supabase UPDATE
-  if (await isOnline()) {
+  if (await isOnlineWithSession()) {
     try {
       const supabase = getDesktopSupabase()
       const { data, error } = await supabase
@@ -589,14 +613,20 @@ export async function enqueueOutbox(
      VALUES (?1, ?2, ?3, ?4)`,
     [op, targetTable, targetId, JSON.stringify(payload)],
   )
+  // 2026-09-05: minden lokális írás után összevont push + light pull (registry) —
+  // Endre: „a rendszer folyamatosan szinkronizáljon minden mentéssel".
+  notifyLocalWriteCommitted()
 }
 
 /** A `processOutbox` egy körének mérlege. */
 export interface ProcessOutboxResult {
   attempted: number
   sent: number
+  /** Végleg `failed` (kézi döntés kell — látszik a felületen). */
   failed: number
   conflicts: number
+  /** Átmeneti hiba után `pending` maradt, a visszalépés lejárta után újra megy. */
+  retrying: number
   /** Ha ki kellett hagyni a kört, itt az EMBERI magyarázat (különben undefined). */
   skippedReason?: string
 }
@@ -613,6 +643,14 @@ export interface ProcessOutboxResult {
  */
 let outboxRunPromise: Promise<ProcessOutboxResult> | null = null
 
+const URES_OUTBOX_EREDMENY: ProcessOutboxResult = {
+  attempted: 0,
+  sent: 0,
+  failed: 0,
+  conflicts: 0,
+  retrying: 0,
+}
+
 /**
  * Végigmegy a pending outbox-sorokon és elküldi őket a Supabase-nek.
  *
@@ -621,7 +659,15 @@ let outboxRunPromise: Promise<ProcessOutboxResult> | null = null
  * - `insert`, `delete` — mint eddig
  *
  * Konfliktus (0 sor frissül a conditional update-nél) → status='failed',
- * last_error='conflict: server revision moved'.
+ * last_error='conflict: …' — VÉGLEGES, de a felületen látszik és feloldható
+ * (`retryOutboxRowFrissRevisionnel` / `elvetOutboxSorSzerverValtozattal`).
+ *
+ * 2026-09-05 (desk-sync-1): ÁTMENETI hiba (hálózat, 5xx, időtúllépés, séma-
+ * cache) NEM végleges — a sor `pending` marad, `retry_count`+1,
+ * `last_attempt_at` beírva, és exponenciális visszalépés után (30 mp → 8 perc)
+ * újra próbáljuk; csak az `OUTBOX_MAX_PROBA`. átmeneti kudarc után lesz
+ * `failed`. A hiba-osztályozó a `write-sync-registry.osztalyozSzinkronHiba`.
+ * `ignoreBackoff` (kézi „Szinkronizálás most") a visszalépést átugorja.
  *
  * ⚠️ HATÁSKÖR (2026-08-15): CSAK a klasszikus, `mutation_id IS NULL` sorok.
  * Az `outbox` táblát az A-M7.0 óta a pénzügyi mutation-queue is használja
@@ -630,9 +676,11 @@ let outboxRunPromise: Promise<ProcessOutboxResult> | null = null
  * nyugtaszámot a tárcából, párosítják a lokális sort a szerver-id-vel és
  * kezelik a konfliktust.
  */
-export async function processOutbox(): Promise<ProcessOutboxResult> {
+export async function processOutbox(
+  opts: { ignoreBackoff?: boolean } = {},
+): Promise<ProcessOutboxResult> {
   if (outboxRunPromise) return outboxRunPromise
-  outboxRunPromise = processOutboxInner()
+  outboxRunPromise = processOutboxInner(Boolean(opts.ignoreBackoff))
   try {
     return await outboxRunPromise
   } finally {
@@ -640,10 +688,10 @@ export async function processOutbox(): Promise<ProcessOutboxResult> {
   }
 }
 
-async function processOutboxInner(): Promise<ProcessOutboxResult> {
+async function processOutboxInner(ignoreBackoff: boolean): Promise<ProcessOutboxResult> {
   const online = await isOnline()
   if (!online) {
-    return { attempted: 0, sent: 0, failed: 0, conflicts: 0 }
+    return { ...URES_OUTBOX_EREDMENY }
   }
 
   // 2026-08-15: session-őr — a `getVerifiedSession` a repó közös helpere,
@@ -657,7 +705,7 @@ async function processOutboxInner(): Promise<ProcessOutboxResult> {
   // csinálunk semmit, a sorok `pending`-ben várnak a valódi belépésre.
   const verified = await getVerifiedSession()
   if (!verified.ok) {
-    return { attempted: 0, sent: 0, failed: 0, conflicts: 0, skippedReason: verified.message }
+    return { ...URES_OUTBOX_EREDMENY, skippedReason: verified.message }
   }
 
   // 2026-08-15 (javítás): `mutation_id IS NULL`.
@@ -671,15 +719,27 @@ async function processOutboxInner(): Promise<ProcessOutboxResult> {
   // már `sent` lett), a konfliktus-kezelés pedig teljesen kimaradt — vagyis a
   // „Szinkronizálás most" gomb megkerülte a pénzügyi push-szinkront, és
   // duplikált / sorszám nélküli bizonylatot okozhatott.
-  const pending = await dbSelect<OutboxRow>(
-    `SELECT id, op, target_table, target_id, payload, status, created_at, retry_count, last_error
+  const mindPending = await dbSelect<OutboxRow>(
+    `SELECT id, op, target_table, target_id, payload, status, created_at, retry_count,
+            last_error, last_attempt_at
        FROM outbox
       WHERE status = 'pending'
         AND mutation_id IS NULL
       ORDER BY created_at ASC`,
   )
+  // Visszalépés JS-oldalon (nem az SQLite dátum-értelmezésén múlik).
+  const now = Date.now()
+  const pending = ignoreBackoff
+    ? mindPending
+    : mindPending.filter((row) => outboxUjraprobalhato(row, now))
 
-  const stats = { attempted: pending.length, sent: 0, failed: 0, conflicts: 0 }
+  const stats: ProcessOutboxResult = {
+    attempted: pending.length,
+    sent: 0,
+    failed: 0,
+    conflicts: 0,
+    retrying: 0,
+  }
   const supabase = getDesktopSupabase()
 
   for (const row of pending) {
@@ -703,11 +763,11 @@ async function processOutboxInner(): Promise<ProcessOutboxResult> {
           query = query.eq('revision', expectedRevision)
         }
 
-        const { data, error } = await query.select('revision')
+        const { data, error } = await withSyncTimeout(query.select('revision'), 'Outbox-frissítés')
         if (error) throw error
 
         if (expectedRevision !== null && (!data || data.length === 0)) {
-          // Konfliktus
+          // Konfliktus — VÉGLEGES, de a felületen látszik és feloldható.
           await markOutboxFailed(
             row.id,
             'conflict: a szerver-oldali revision eltér (sor időközben frissült)',
@@ -721,25 +781,27 @@ async function processOutboxInner(): Promise<ProcessOutboxResult> {
           // Offline-create flush: a szerver-sort visszakérjük, hogy a lokális
           // tükörben az ideiglenes (negatív id-jű) optimista sort azonnal az
           // igazi sorra cserélhessük — külön pull nélkül.
-          const { data, error } = await supabase
-            .from('munkanaplo')
-            .insert(payload)
-            .select(WORKLOG_SELECT_COLS)
-            .single()
+          const { data, error } = await withSyncTimeout(
+            supabase.from('munkanaplo').insert(payload).select(WORKLOG_SELECT_COLS).single(),
+            'Munkanapló-beszúrás',
+          )
           if (error) throw error
           await replaceTempWorklogLocalRow(
             row.target_id,
             (data ?? null) as unknown as WorklogSupabaseRow | null,
           )
         } else {
-          const { error } = await supabase.from(row.target_table).insert(payload)
+          const { error } = await withSyncTimeout(
+            supabase.from(row.target_table).insert(payload),
+            'Outbox-beszúrás',
+          )
           if (error) throw error
         }
       } else if (row.op === 'delete' && row.target_id) {
-        const { error } = await supabase
-          .from(row.target_table)
-          .delete()
-          .eq('id', row.target_id)
+        const { error } = await withSyncTimeout(
+          supabase.from(row.target_table).delete().eq('id', row.target_id),
+          'Outbox-törlés',
+        )
         if (error) throw error
       } else {
         throw new Error(
@@ -751,8 +813,22 @@ async function processOutboxInner(): Promise<ProcessOutboxResult> {
       stats.sent++
     } catch (err: unknown) {
       const msg = errorMessage(err)
-      await markOutboxFailed(row.id, msg, row.retry_count + 1)
-      stats.failed++
+      const probak = row.retry_count + 1
+      // desk-sync-1: átmeneti hiba → a sor PENDING marad, visszalépéssel újra
+      // megy; csak végleges hibánál (vagy a plafon után) lesz `failed`.
+      if (osztalyozSzinkronHiba(err) === 'atmeneti' && probak < OUTBOX_MAX_PROBA) {
+        await markOutboxAttempt(row.id, msg, probak)
+        stats.retrying++
+      } else {
+        await markOutboxFailed(
+          row.id,
+          probak >= OUTBOX_MAX_PROBA && osztalyozSzinkronHiba(err) === 'atmeneti'
+            ? `${probak} próbálkozás után is hálózati hiba: ${msg}`
+            : msg,
+          probak,
+        )
+        stats.failed++
+      }
     }
   }
 
@@ -783,10 +859,26 @@ function destructureUpdatePayload(payload: unknown): {
   }
 }
 
+/** Végleges kudarc: a sor `failed` — a felületen látszik, kézi döntés kell. */
 async function markOutboxFailed(id: number, lastError: string, retryCount: number): Promise<void> {
   await dbExecute(
-    `UPDATE outbox SET status = 'failed', last_error = ?1, retry_count = ?2 WHERE id = ?3`,
-    [lastError, retryCount, id],
+    `UPDATE outbox
+        SET status = 'failed', last_error = ?1, retry_count = ?2, last_attempt_at = ?3
+      WHERE id = ?4`,
+    [lastError, retryCount, new Date().toISOString(), id],
+  )
+}
+
+/**
+ * Átmeneti kudarc (desk-sync-1): a sor `pending` MARAD, csak a számláló és az
+ * időbélyeg nő — a következő kör a visszalépés lejárta után próbálja újra.
+ */
+async function markOutboxAttempt(id: number, lastError: string, retryCount: number): Promise<void> {
+  await dbExecute(
+    `UPDATE outbox
+        SET status = 'pending', last_error = ?1, retry_count = ?2, last_attempt_at = ?3
+      WHERE id = ?4`,
+    [lastError, retryCount, new Date().toISOString(), id],
   )
 }
 
@@ -796,25 +888,192 @@ async function markOutboxFailed(id: number, lastError: string, retryCount: numbe
 
 export async function getFailedOutboxRows(): Promise<OutboxRow[]> {
   return dbSelect<OutboxRow>(
-    `SELECT id, op, target_table, target_id, payload, status, created_at, retry_count, last_error
+    `SELECT id, op, target_table, target_id, payload, status, created_at, retry_count,
+            last_error, last_attempt_at
        FROM outbox
       WHERE status = 'failed'
+        AND mutation_id IS NULL
       ORDER BY created_at DESC
-      LIMIT 20`,
+      LIMIT 50`,
   )
+}
+
+/** Revision-ütközésen elakadt sor? (A `last_error` `conflict:` előtaggal jelöli.) */
+export function outboxSorUtkozes(row: Pick<OutboxRow, 'last_error'>): boolean {
+  return /^conflict:/i.test(row.last_error ?? '')
+}
+
+/** A klasszikus outbox függő/hibás sorainak összesítése — a fejléc-jelvénynek. */
+export async function getOutboxFuggoOsszesites(): Promise<{
+  pending: number
+  failed: number
+  conflict: number
+}> {
+  const rows = await dbSelect<{ status: string; last_error: string | null; n: number }>(
+    `SELECT status, last_error, COUNT(*) AS n
+       FROM outbox
+      WHERE mutation_id IS NULL AND status IN ('pending','failed')
+      GROUP BY status, last_error`,
+  )
+  const ki = { pending: 0, failed: 0, conflict: 0 }
+  for (const r of rows) {
+    const n = Number(r.n) || 0
+    if (r.status === 'pending') ki.pending += n
+    else if (outboxSorUtkozes(r)) ki.conflict += n
+    else ki.failed += n
+  }
+  return ki
 }
 
 /** Újra pending-re állít egy failed sort, hogy a következő sync megpróbálja. */
 export async function retryOutboxRow(id: number): Promise<void> {
   await dbExecute(
-    `UPDATE outbox SET status = 'pending', last_error = NULL WHERE id = ?1`,
+    `UPDATE outbox
+        SET status = 'pending', last_error = NULL, retry_count = 0, last_attempt_at = NULL
+      WHERE id = ?1`,
     [id],
   )
 }
 
-/** Végleg törli a failed sort (pl. a user megszavazta, hogy szemétbe). */
+/**
+ * Revision-ütközés feloldása: „MEGTARTOM AZ ENYÉMET" (desk-sync-6).
+ *
+ * A lokális patch (CSAK a módosított mezők) újraküldése a szerver FRISS
+ * változatszámával — a sor `pending`-re áll, a következő kör felküldi. Ha a
+ * szerver-sor közben újra változna, a feltételes UPDATE megint ütközik, és a
+ * lelkész újra dönt (sosem néma felülírás egyik irányban sem).
+ */
+export async function retryOutboxRowFrissRevisionnel(
+  id: number,
+): Promise<{ ok: true; ujRevision: number } | { ok: false; error: string }> {
+  const rows = await dbSelect<OutboxRow>(
+    `SELECT id, op, target_table, target_id, payload, status, created_at, retry_count,
+            last_error, last_attempt_at
+       FROM outbox WHERE id = ?1`,
+    [id],
+  )
+  const row = rows[0]
+  if (!row) return { ok: false, error: 'A várólista-sor már nem létezik.' }
+  if (row.op !== 'update' || !row.target_id) {
+    return { ok: false, error: 'Ez a sor nem módosítás — a friss változatszámos újraküldés csak módosításra értelmezett.' }
+  }
+  let payload: unknown
+  try {
+    payload = JSON.parse(row.payload)
+  } catch {
+    return { ok: false, error: 'A sor tartalma sérült (érvénytelen JSON).' }
+  }
+  const { patch } = destructureUpdatePayload(payload)
+
+  const supabase = getDesktopSupabase()
+  const { data, error } = await withSyncTimeout(
+    supabase.from(row.target_table).select('revision').eq('id', row.target_id).maybeSingle(),
+    'Szerver-változatszám lekérése',
+  )
+  if (error) return { ok: false, error: `A szerver-változat nem olvasható: ${error.message}` }
+  if (!data) {
+    return { ok: false, error: 'A sor a szerveren már nem létezik — a helyi módosítás nem küldhető fel.' }
+  }
+  const ujRevision = Number((data as { revision?: number }).revision ?? 0)
+  await dbExecute(
+    `UPDATE outbox
+        SET payload = ?1, status = 'pending', last_error = NULL, retry_count = 0, last_attempt_at = NULL
+      WHERE id = ?2`,
+    [JSON.stringify({ patch, expected_revision: ujRevision } satisfies OutboxUpdatePayload), id],
+  )
+  return { ok: true, ujRevision }
+}
+
+/**
+ * Végleg törli a failed sort (pl. a user megszavazta, hogy szemétbe).
+ *
+ * 2026-09-05 (desk-sync-7): ha offline munkanapló-BESZÚRÁS volt, az optimista
+ * (negatív id-jű) fantom sor is eltűnik a tükörből — eddig örökre a listában
+ * maradt „szinkronizálásra vár" címkével.
+ */
 export async function dismissOutboxRow(id: number): Promise<void> {
+  const rows = await dbSelect<Pick<OutboxRow, 'op' | 'target_table' | 'target_id'>>(
+    `SELECT op, target_table, target_id FROM outbox WHERE id = ?1`,
+    [id],
+  )
+  const row = rows[0]
   await dbExecute(`DELETE FROM outbox WHERE id = ?1`, [id])
+  if (row && row.op === 'insert' && row.target_table === 'munkanaplo' && row.target_id) {
+    const tempId = Number(row.target_id)
+    if (Number.isFinite(tempId) && tempId < 0) {
+      await dbExecute(`DELETE FROM munkanaplo_local WHERE id = ?1`, [tempId])
+    }
+  }
+}
+
+/**
+ * Revision-ütközés feloldása: „A SZERVER VÁLTOZATA MARAD" (desk-sync-6).
+ *
+ * A várólista-sor törlődik, és az érintett szerver-sort CÉLZOTTAN újra
+ * letöltjük — a delta-pull ezt magától nem tenné meg (a vízjel már túl van a
+ * szerver-sor `updated_at`-ján, és a függő outbox-sor eddig a pull-upsertet is
+ * kizárta). Sorrend: előbb a várólista-sor, csak utána a frissítés — az
+ * upsert-kapu különben megint kihagyná a sort.
+ */
+export async function elvetOutboxSorSzerverValtozattal(
+  id: number,
+  userId: string,
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  const rows = await dbSelect<Pick<OutboxRow, 'op' | 'target_table' | 'target_id'>>(
+    `SELECT op, target_table, target_id FROM outbox WHERE id = ?1`,
+    [id],
+  )
+  const row = rows[0]
+  await dismissOutboxRow(id)
+  if (!row || !row.target_id) return { ok: true }
+  try {
+    await frissitSzerverSort(row.target_table, row.target_id, userId)
+    return { ok: true }
+  } catch (err) {
+    return {
+      ok: false,
+      error: `A várólista-sor törölve, de a szerver-változat letöltése nem sikerült: ${errorMessage(err)}. A következő teljes szinkron pótolja.`,
+    }
+  }
+}
+
+/**
+ * Egyetlen szerver-sor célzott újratöltése a tükörbe (tag / munkanapló /
+ * saját profil). Ha a sor a szerveren már nincs meg, a helyi másolat törlődik.
+ */
+async function frissitSzerverSort(targetTable: string, targetId: string, userId: string): Promise<void> {
+  const supabase = getDesktopSupabase()
+  if (targetTable === 'profiles') {
+    await pullOwnProfile(userId)
+    return
+  }
+  if (targetTable === 'szemely') {
+    const { data, error } = await withSyncTimeout(
+      supabase.from('szemely').select(MEMBER_SELECT_COLS).eq('id', Number(targetId)).maybeSingle(),
+      'Tag újratöltése',
+    )
+    if (error) throw new Error(error.message)
+    if (!data) {
+      await dbExecute(`DELETE FROM szemely_local WHERE id = ?1`, [Number(targetId)])
+      return
+    }
+    await dbExecute(MEMBER_UPSERT_SQL, memberUpsertParams(data as unknown as MemberSupabaseRow))
+    return
+  }
+  if (targetTable === 'munkanaplo') {
+    const { data, error } = await withSyncTimeout(
+      supabase.from('munkanaplo').select(WORKLOG_SELECT_COLS).eq('id', Number(targetId)).maybeSingle(),
+      'Munkanapló-sor újratöltése',
+    )
+    if (error) throw new Error(error.message)
+    if (!data) {
+      await dbExecute(`DELETE FROM munkanaplo_local WHERE id = ?1`, [Number(targetId)])
+      return
+    }
+    await upsertWorklogLocalRow(data as unknown as WorklogSupabaseRow)
+    return
+  }
+  throw new Error(`Ismeretlen tábla a célzott frissítéshez: ${targetTable}`)
 }
 
 // ═════════════════════════════════════════════════════════════════════════
@@ -832,25 +1091,16 @@ export async function dismissOutboxRow(id: number): Promise<void> {
 // terheljék a lassú vagy szakadozó hálózatot).
 // ═════════════════════════════════════════════════════════════════════════
 
-/** Poll-ciklus — a pénzügyi push-erekkel azonos ütem. */
-const OUTBOX_POLL_MS = 30_000
-
-/** Exponenciális visszalépés egymást követő sikertelen körök után (ms). */
-const OUTBOX_BACKOFF_MS = [0, 30_000, 60_000, 120_000, 300_000, 900_000]
-
-let outboxPollInterval: ReturnType<typeof setInterval> | null = null
-let outboxOnlineListenerAttached = false
 let outboxInFlight = false
 let outboxLastRunAt: string | null = null
 let outboxLastResult: ProcessOutboxResult | null = null
 let outboxConsecutiveFailures = 0
-let outboxNextAttemptAtMs = 0
 
 export interface OutboxSyncStatus {
   running: boolean
   lastRunAt: string | null
   lastResult: ProcessOutboxResult | null
-  /** Egymást követő sikertelen körök száma (a visszalépés alapja). */
+  /** Egymást követő, egyetlen sikeres küldés nélküli körök száma. */
   consecutiveFailures: number
 }
 
@@ -865,18 +1115,21 @@ export function getOutboxSyncStatus(): OutboxSyncStatus {
 
 /**
  * Egy őrzött kör. Nem dob — a háttér-trigger sosem buktathatja el a UI-t,
- * de a hibát NEM is nyeli el sikerként: számolja, naplózza, és a következő
- * kört visszalépteti.
+ * de a hibát NEM is nyeli el sikerként: számolja, naplózza.
+ *
+ * 2026-09-05: EXPORTÁLT — a `write-sync-registry` 30 mp-es pollja hívja; a
+ * saját `online` listener + interval + kör-szintű visszalépés innen KIKERÜLT
+ * (a visszalépés soronként él: `last_attempt_at` + `retry_count`). 30 mp-es
+ * időkorlát: egy beragadt kérés nem tartja örökre `inFlight`-ban a kört.
  */
-async function runOutboxOnceGuarded(): Promise<void> {
+export async function runOutboxSyncGuarded(): Promise<void> {
   if (outboxInFlight) return
   if (typeof navigator !== 'undefined' && navigator.onLine === false) return
-  if (Date.now() < outboxNextAttemptAtMs) return
 
   outboxInFlight = true
   let sikeresKor = true
   try {
-    const stats = await processOutbox()
+    const stats = await withSyncTimeout(processOutbox(), 'Outbox-kör')
     outboxLastResult = stats
     outboxLastRunAt = new Date().toISOString()
     if (stats.skippedReason) {
@@ -892,38 +1145,18 @@ async function runOutboxOnceGuarded(): Promise<void> {
     console.warn('[sync] Az outbox automatikus ürítése hibára futott:', errorMessage(err))
   } finally {
     outboxConsecutiveFailures = sikeresKor ? 0 : outboxConsecutiveFailures + 1
-    const idx = Math.min(outboxConsecutiveFailures, OUTBOX_BACKOFF_MS.length - 1)
-    outboxNextAttemptAtMs = Date.now() + OUTBOX_BACKOFF_MS[idx]
     outboxInFlight = false
   }
 }
 
 /**
- * Beállítja az outbox auto-triggereit: indulás + `online` esemény + 30 mp-es
- * poll. Idempotens — többszöri hívás nem duplikálja a listener-t / intervalt.
- * A `befizetes-write-sync.startBefizetesAutoSync()` mintáját követi, hogy a
- * két queue-nak azonos legyen a viselkedése.
+ * Kompatibilitási belépő: egyetlen azonnali őrzött kör. A triggerkészlet
+ * (online-esemény, poll, lokális mentés utáni összevont futás) a
+ * `write-sync-registry`-ben él — itt NINCS listener és NINCS interval.
  */
 export function startOutboxAutoSync(): void {
   if (typeof window === 'undefined') return
-
-  if (!outboxOnlineListenerAttached) {
-    window.addEventListener('online', () => {
-      // Visszatért a hálózat → a korábbi kudarcok visszalépése érvényét veszti.
-      outboxConsecutiveFailures = 0
-      outboxNextAttemptAtMs = 0
-      void runOutboxOnceGuarded()
-    })
-    outboxOnlineListenerAttached = true
-  }
-
-  if (!outboxPollInterval) {
-    outboxPollInterval = setInterval(() => {
-      void runOutboxOnceGuarded()
-    }, OUTBOX_POLL_MS)
-  }
-
-  void runOutboxOnceGuarded()
+  void runOutboxSyncGuarded()
 }
 
 /** A `flushAllPendingWrites` összesítője. */
@@ -964,21 +1197,20 @@ interface DedikaltPushEredmeny {
  */
 export async function flushAllPendingWrites(userId?: string | null): Promise<FlushAllResult> {
   const result: FlushAllResult = {
-    outbox: { attempted: 0, sent: 0, failed: 0, conflicts: 0 },
+    outbox: { attempted: 0, sent: 0, failed: 0, conflicts: 0, retrying: 0 },
     dedikalt: { attempted: 0, succeeded: 0, retrying: 0, conflicts: 0 },
     hibak: [],
   }
 
   // 1. A klasszikus outbox-ág (munkanapló, profil, tag-módosítás).
   try {
-    const stats = await processOutbox()
+    // Kézi gomb: a soronkénti visszalépést átugorjuk (a lelkész explicit kéri).
+    const stats = await processOutbox({ ignoreBackoff: true })
     result.outbox = stats
     // Ha a kör kimaradt (nincs érvényes belépés, más fiók), azt KI KELL írni:
     // a gomb nem jelenthet sikert, miközben minden a gépen maradt.
     if (stats.skippedReason) result.hibak.push(`Offline írások: ${stats.skippedReason}`)
-    // A kézi gomb után a háttér-visszalépés induljon tisztán.
     outboxConsecutiveFailures = 0
-    outboxNextAttemptAtMs = 0
   } catch (err) {
     result.hibak.push(`Az offline írások feltöltése nem sikerült: ${errorMessage(err)}`)
   }
@@ -1030,6 +1262,54 @@ export async function flushAllPendingWrites(userId?: string | null): Promise<Flu
   }
 
   return result
+}
+
+/**
+ * 0-SOR-SZELEP a TRUNCATE+INSERT (teljes csere) pull-okhoz (2026-09-05,
+ * desk-sync-4 / D8).
+ *
+ * MI VOLT A HIBA: a teljes-cserés pull-ok (programok, leltár, anyakönyv,
+ * iktató, jegyzőkönyvek, sírhelyek, éves jelentés, település-katalógus) a
+ * szerver válaszát szelep nélkül írták a tükörbe: egy üres válasz (anon
+ * szerepkör PIN-módban, inaktív státusz miatt NULL-ra álló
+ * `current_user_congregation_id()`, RLS-anomália) TÖRÖLTE a helyi adatot —
+ * pl. a programnaptár session nélkül kiürült.
+ *
+ * A DÖNTÉS (`szelepDontes`, tiszta függvény a registry-ben): ha a szerver 0
+ * sort adott, de a helyi tükörben VAN sor a hatókörben, és a válasz nem
+ * igazoltan üres, a csere KIMARAD — hangos figyelmeztetéssel (a hívó a
+ * `figyelmeztetes` mezőt visszaadja, az orchestrator 'partial'-ként mutatja).
+ * ⚠️ ISMERT KORLÁT: egy LEGITIM teljes törlés (az utolsó program is törölve a
+ * weben) így nem tükröződik automatikusan — a figyelmeztetés ezt kimondja.
+ *
+ * A hívó a szelep UTÁN futtatja a saját DELETE + INSERT lépéseit — a
+ * `selftest-desktop-szinkron` a sorrendet (szelep → DELETE) őrzi mind a 8
+ * pull-ban.
+ */
+async function tukorCsereSzelep(opts: {
+  cimke: string
+  localTables: string[]
+  /** A lokális hatókör WHERE-je (üres = az egész tábla). */
+  scopeSql: string
+  scopeParams: SqlParam[]
+  szerverSorok: number
+}): Promise<{ kihagy: boolean; lokalisSorok: number; figyelmeztetes?: string }> {
+  let lokalisSorok = 0
+  for (const t of opts.localTables) {
+    const where = opts.scopeSql ? ` WHERE ${opts.scopeSql}` : ''
+    const rows = await dbSelect<{ n: number }>(`SELECT COUNT(*) AS n FROM ${t}${where}`, opts.scopeParams)
+    lokalisSorok += Number(rows[0]?.n ?? 0)
+  }
+  const dontes = szelepDontes({ szerverSorok: opts.szerverSorok, lokalisSorok })
+  if (dontes === 'kihagy') {
+    const figyelmeztetes =
+      `${opts.cimke}: a szerver 0 sort adott, miközben a gépen ${lokalisSorok} sor van — ` +
+      'a helyi adatot NEM töröltük (jogosultsági anomália vagy lejárt belépés?). ' +
+      'Ha a weben tényleg mindent töröltek, a helyi másolat a következő teljes újratöltésig marad.'
+    console.warn(`[sync] ${figyelmeztetes}`)
+    return { kihagy: true, lokalisSorok, figyelmeztetes }
+  }
+  return { kihagy: false, lokalisSorok }
 }
 
 // ═════════════════════════════════════════════════════════════════════════
@@ -1479,6 +1759,123 @@ const MEMBER_SELECT_COLS =
   'telefon, email, vallas, foglalkozas, nemzetiseg, voter_eligible, voter_manual_override, ' +
   'congregation_id, family_id, type, isvisible, megjegyzes, kep, social_profil_url, revision, updated_at'
 
+/**
+ * A `szemely` upsert SQL-je — 2026-09-05 óta külön konstans (a pull-hurok
+ * kötegelve, a célzott sor-újratöltés egyesével használja).
+ *
+ * KAPU (desk-sync-6): amíg egy tagra FÜGGŐ vagy ÜTKÖZÖTT klasszikus outbox-sor
+ * van a gépen, a pull-upsert NEM írja felül a helyi optimista módosítást —
+ * különben a következő delta-pull ~1 mp múlva némán visszaállítaná a
+ * szerver-változatot, és a lelkész azt hinné, a módosítása elveszett.
+ */
+const MEMBER_UPSERT_SQL = `INSERT INTO szemely_local
+         (id, cnp, szcs_nev, k_nev, csaladnev, ferjk_nev, allapot,
+          sz_datum, ferfi, csaladfo, meghalt, member_status,
+          apjaneve, anyjaneve, id_apja, id_anyja,
+          c_szam, c_tombhaz, c_lepcsohaz, c_ajto, c_emelet, c_szcim,
+          telefon, email, vallas, foglalkozas, nemzetiseg, voter_eligible,
+          congregation_id, family_id, type, isvisible, megjegyzes,
+          kep, social_profil_url, voter_manual_override,
+          revision, updated_at, synced_at)
+       VALUES
+         (?1, ?2, ?3, ?4, ?5, ?6, ?7,
+          ?8, ?9, ?10, ?11, ?12,
+          ?13, ?14, ?15, ?16,
+          ?17, ?18, ?19, ?20, ?21, ?22,
+          ?23, ?24, ?25, ?26, ?27, ?28,
+          ?29, ?30, ?31, ?32, ?33,
+          ?36, ?37, ?38,
+          ?34, ?35, datetime('now'))
+       ON CONFLICT(id) DO UPDATE SET
+         cnp = excluded.cnp,
+         szcs_nev = excluded.szcs_nev,
+         k_nev = excluded.k_nev,
+         csaladnev = excluded.csaladnev,
+         ferjk_nev = excluded.ferjk_nev,
+         allapot = excluded.allapot,
+         sz_datum = excluded.sz_datum,
+         ferfi = excluded.ferfi,
+         csaladfo = excluded.csaladfo,
+         meghalt = excluded.meghalt,
+         member_status = excluded.member_status,
+         apjaneve = excluded.apjaneve,
+         anyjaneve = excluded.anyjaneve,
+         id_apja = excluded.id_apja,
+         id_anyja = excluded.id_anyja,
+         c_szam = excluded.c_szam,
+         c_tombhaz = excluded.c_tombhaz,
+         c_lepcsohaz = excluded.c_lepcsohaz,
+         c_ajto = excluded.c_ajto,
+         c_emelet = excluded.c_emelet,
+         c_szcim = excluded.c_szcim,
+         telefon = excluded.telefon,
+         email = excluded.email,
+         vallas = excluded.vallas,
+         foglalkozas = excluded.foglalkozas,
+         nemzetiseg = excluded.nemzetiseg,
+         voter_eligible = excluded.voter_eligible,
+         congregation_id = excluded.congregation_id,
+         family_id = excluded.family_id,
+         type = excluded.type,
+         isvisible = excluded.isvisible,
+         megjegyzes = excluded.megjegyzes,
+         kep = excluded.kep,
+         social_profil_url = excluded.social_profil_url,
+         voter_manual_override = excluded.voter_manual_override,
+         revision = excluded.revision,
+         updated_at = excluded.updated_at,
+         synced_at = excluded.synced_at
+     WHERE NOT EXISTS (
+       SELECT 1 FROM outbox o
+        WHERE o.mutation_id IS NULL
+          AND o.status IN ('pending','failed')
+          AND o.target_table = 'szemely'
+          AND o.target_id = CAST(szemely_local.id AS TEXT))`
+
+/** A `MEMBER_UPSERT_SQL` paraméter-sora egyetlen szerver-sorból. */
+function memberUpsertParams(row: MemberSupabaseRow): SqlParam[] {
+  return [
+      row.id,
+      row.cnp,
+      row.szcs_nev,
+      row.k_nev,
+      row.csaladnev,
+      row.ferjk_nev,
+      row.allapot,
+      row.sz_datum,
+      row.ferfi ? 1 : 0,
+      row.csaladfo ? 1 : 0,
+      row.meghalt ? 1 : 0,
+      row.member_status,
+      row.apjaneve,
+      row.anyjaneve,
+      row.id_apja,
+      row.id_anyja,
+      row.c_szam,
+      row.c_tombhaz,
+      row.c_lepcsohaz,
+      row.c_ajto,
+      row.c_emelet,
+      row.c_szcim,
+      row.telefon,
+      row.email,
+      row.vallas,
+      row.foglalkozas,
+      row.nemzetiseg,
+      row.voter_eligible ? 1 : 0,
+      row.congregation_id,
+      row.family_id,
+      row.type,
+      row.isvisible ? 1 : 0,
+      row.megjegyzes,
+      row.revision ?? 0,
+      row.updated_at ?? null,
+      row.kep ?? null,
+      row.social_profil_url ?? null,
+      row.voter_manual_override ?? null,
+  ]
+}
+
 /** Kulcs-prefix — a per-gyülekezet last_pull külön mezőben él. */
 const LAST_PULL_MEMBERS_KEY_PREFIX = 'sync:members:last_pull:'
 
@@ -1557,110 +1954,8 @@ export async function pullMembersOfOwnCongregation(
 
   const rows = (data ?? []) as unknown as MemberSupabaseRow[]
 
-  // 4. Upsert a lokális cache-be — soronként
-  const memberBatch: SqlParam[][] = []
-  for (const row of rows) {
-    memberBatch.push([
-      row.id,
-      row.cnp,
-      row.szcs_nev,
-      row.k_nev,
-      row.csaladnev,
-      row.ferjk_nev,
-      row.allapot,
-      row.sz_datum,
-      row.ferfi ? 1 : 0,
-      row.csaladfo ? 1 : 0,
-      row.meghalt ? 1 : 0,
-      row.member_status,
-      row.apjaneve,
-      row.anyjaneve,
-      row.id_apja,
-      row.id_anyja,
-      row.c_szam,
-      row.c_tombhaz,
-      row.c_lepcsohaz,
-      row.c_ajto,
-      row.c_emelet,
-      row.c_szcim,
-      row.telefon,
-      row.email,
-      row.vallas,
-      row.foglalkozas,
-      row.nemzetiseg,
-      row.voter_eligible ? 1 : 0,
-      row.congregation_id,
-      row.family_id,
-      row.type,
-      row.isvisible ? 1 : 0,
-      row.megjegyzes,
-      row.revision ?? 0,
-      row.updated_at ?? null,
-      row.kep ?? null,
-      row.social_profil_url ?? null,
-      row.voter_manual_override ?? null,
-    ])
-  }
-  await dbExecuteMany(
-    `INSERT INTO szemely_local
-         (id, cnp, szcs_nev, k_nev, csaladnev, ferjk_nev, allapot,
-          sz_datum, ferfi, csaladfo, meghalt, member_status,
-          apjaneve, anyjaneve, id_apja, id_anyja,
-          c_szam, c_tombhaz, c_lepcsohaz, c_ajto, c_emelet, c_szcim,
-          telefon, email, vallas, foglalkozas, nemzetiseg, voter_eligible,
-          congregation_id, family_id, type, isvisible, megjegyzes,
-          kep, social_profil_url, voter_manual_override,
-          revision, updated_at, synced_at)
-       VALUES
-         (?1, ?2, ?3, ?4, ?5, ?6, ?7,
-          ?8, ?9, ?10, ?11, ?12,
-          ?13, ?14, ?15, ?16,
-          ?17, ?18, ?19, ?20, ?21, ?22,
-          ?23, ?24, ?25, ?26, ?27, ?28,
-          ?29, ?30, ?31, ?32, ?33,
-          ?36, ?37, ?38,
-          ?34, ?35, datetime('now'))
-       ON CONFLICT(id) DO UPDATE SET
-         cnp = excluded.cnp,
-         szcs_nev = excluded.szcs_nev,
-         k_nev = excluded.k_nev,
-         csaladnev = excluded.csaladnev,
-         ferjk_nev = excluded.ferjk_nev,
-         allapot = excluded.allapot,
-         sz_datum = excluded.sz_datum,
-         ferfi = excluded.ferfi,
-         csaladfo = excluded.csaladfo,
-         meghalt = excluded.meghalt,
-         member_status = excluded.member_status,
-         apjaneve = excluded.apjaneve,
-         anyjaneve = excluded.anyjaneve,
-         id_apja = excluded.id_apja,
-         id_anyja = excluded.id_anyja,
-         c_szam = excluded.c_szam,
-         c_tombhaz = excluded.c_tombhaz,
-         c_lepcsohaz = excluded.c_lepcsohaz,
-         c_ajto = excluded.c_ajto,
-         c_emelet = excluded.c_emelet,
-         c_szcim = excluded.c_szcim,
-         telefon = excluded.telefon,
-         email = excluded.email,
-         vallas = excluded.vallas,
-         foglalkozas = excluded.foglalkozas,
-         nemzetiseg = excluded.nemzetiseg,
-         voter_eligible = excluded.voter_eligible,
-         congregation_id = excluded.congregation_id,
-         family_id = excluded.family_id,
-         type = excluded.type,
-         isvisible = excluded.isvisible,
-         megjegyzes = excluded.megjegyzes,
-         kep = excluded.kep,
-         social_profil_url = excluded.social_profil_url,
-         voter_manual_override = excluded.voter_manual_override,
-         revision = excluded.revision,
-         updated_at = excluded.updated_at,
-         synced_at = excluded.synced_at`,
-    memberBatch,
-  )
+  // 4. Upsert a lokális cache-be — kötegelve (a közös MEMBER_UPSERT_SQL-lel)
+  await dbExecuteMany(MEMBER_UPSERT_SQL, rows.map(memberUpsertParams))
 
   // 5. last_pull frissítés — a legújabb kapott updated_at-ra
   let newLastPull = lastPull ?? new Date(0).toISOString()
@@ -1936,7 +2231,13 @@ const WORKLOG_UPSERT_SQL = `INSERT INTO munkanaplo_local
        congregation_id = excluded.congregation_id,
        revision = excluded.revision,
        updated_at = excluded.updated_at,
-       synced_at = excluded.synced_at`
+       synced_at = excluded.synced_at
+     WHERE NOT EXISTS (
+       SELECT 1 FROM outbox o
+        WHERE o.mutation_id IS NULL
+          AND o.status IN ('pending','failed')
+          AND o.target_table = 'munkanaplo'
+          AND o.target_id = CAST(munkanaplo_local.id AS TEXT))`
 
 /** A `WORKLOG_UPSERT_SQL` paraméter-sora egyetlen szerver-sorból. */
 function worklogUpsertParams(row: WorklogSupabaseRow): SqlParam[] {
@@ -2280,7 +2581,7 @@ export async function createWorklogEntry(
   }
 
   // Online attempt
-  if (await isOnline()) {
+  if (await isOnlineWithSession()) {
     try {
       const supabase = getDesktopSupabase()
       const { data, error } = await supabase
@@ -2444,7 +2745,7 @@ export async function updateWorklogEntry(
   )
 
   // 2. Online conditional UPDATE
-  if (await isOnline()) {
+  if (await isOnlineWithSession()) {
     try {
       const supabase = getDesktopSupabase()
       const { data, error } = await supabase
@@ -2507,7 +2808,7 @@ export async function deleteWorklogEntry(
     [entryId],
   )
 
-  if (await isOnline()) {
+  if (await isOnlineWithSession()) {
     try {
       const supabase = getDesktopSupabase()
       const { data, error } = await supabase
@@ -2601,7 +2902,7 @@ export async function updateSzemelyEntry(
   )
 
   // 2. Online conditional UPDATE
-  if (await isOnline()) {
+  if (await isOnlineWithSession()) {
     try {
       const supabase = getDesktopSupabase()
       const { data, error } = await supabase
@@ -3077,7 +3378,7 @@ export async function createSzemelyEntry(
   })
 
   // 3. Online-kísérlet
-  if (await isOnline()) {
+  if (await isOnlineWithSession()) {
     try {
       const supabase = getDesktopSupabase()
       const payload = buildServerInsertPayload(input)
@@ -3337,7 +3638,7 @@ export async function createCsaladEntry(
   })
 
   // Online insert
-  if (await isOnline()) {
+  if (await isOnlineWithSession()) {
     try {
       const supabase = getDesktopSupabase()
       const payload = {
@@ -3439,7 +3740,7 @@ export async function updateCsaladEntry(
   }
 
   // Online conditional UPDATE
-  if (await isOnline()) {
+  if (await isOnlineWithSession()) {
     try {
       const supabase = getDesktopSupabase()
       const { data, error } = await supabase
@@ -3542,7 +3843,7 @@ export async function addGyerekToCsalad(
     userid: userId,
   })
 
-  if (await isOnline()) {
+  if (await isOnlineWithSession()) {
     try {
       const supabase = getDesktopSupabase()
       const { data, error } = await supabase
@@ -3609,7 +3910,7 @@ export async function removeGyerekFromCsalad(
   // Azonnali optimistic delete a lokál cache-ből (a UI azonnal frissül)
   await backend.deleteLocalGyerekOptimistic(gyerekId)
 
-  if (await isOnline()) {
+  if (await isOnlineWithSession()) {
     try {
       const supabase = getDesktopSupabase()
       const { error } = await supabase.from('gyerek').delete().eq('id', gyerekId)
@@ -3764,6 +4065,10 @@ export async function pullRegistryOfOwnCongregation(userId: string): Promise<{
   }
   mode: 'full' | 'no-congregation'
   lastPullIso: string
+  /** 0-sor-szelep: a csere kimaradt (a helyi adat megmaradt). */
+  skipped?: 'ures-szerver-halmaz'
+  /** Emberi figyelmeztetés a felületnek (a szelep oka). */
+  figyelmeztetes?: string
 }> {
   const supabase = getDesktopSupabase()
   const profile = await getLocalOwnProfile(userId)
@@ -3872,6 +4177,40 @@ export async function pullRegistryOfOwnCongregation(userId: string): Promise<{
     throw new Error(`Supabase pullRegistry/attert: ${attertRes.error.message}`)
   if (kitertRes.error)
     throw new Error(`Supabase pullRegistry/kitert: ${kitertRes.error.message}`)
+
+  // 0-sor-szelep (desk-sync-4) — a 8 tábla együtt: a szerver válasza üres,
+  // de a gépen van anyakönyv → a csere kimarad, a helyi adat megmarad.
+  const szerverSorok =
+    (keresztelesRes.data ?? []).length +
+    (konfirmacioRes.data ?? []).length +
+    (hazassagRes.data ?? []).length +
+    (temetesRes.data ?? []).length +
+    (bekoltozottRes.data ?? []).length +
+    (elkoltozottRes.data ?? []).length +
+    (attertRes.data ?? []).length +
+    (kitertRes.data ?? []).length
+  const szelep = await tukorCsereSzelep({
+    cimke: 'Anyakönyv',
+    localTables: [
+      'keresztseg_local', 'konfirmalas_local', 'hazassag_local', 'temetes_local',
+      'bekoltozott_local', 'elkoltozott_local', 'attert_local', 'kitert_local',
+    ],
+    scopeSql: 'congregation_id = ?1',
+    scopeParams: [congregationId],
+    szerverSorok,
+  })
+  if (szelep.kihagy) {
+    return {
+      pulledRows: {
+        kereszteles: 0, konfirmacio: 0, hazassag: 0, temetes: 0,
+        bekoltozott: 0, elkoltozott: 0, attert: 0, kitert: 0,
+      },
+      mode: 'full',
+      lastPullIso: new Date().toISOString(),
+      skipped: 'ures-szerver-halmaz',
+      figyelmeztetes: szelep.figyelmeztetes,
+    }
+  }
 
   // TRUNCATE — csak a saját gyülekezet sorai (mind a 8 tábla)
   await dbExecute('DELETE FROM keresztseg_local WHERE congregation_id = ?1', [congregationId])
@@ -4436,6 +4775,10 @@ export async function pullInventoryOfOwnCongregation(userId: string): Promise<{
   pulledRows: number
   mode: 'full' | 'no-congregation'
   lastPullIso: string
+  /** 0-sor-szelep: a csere kimaradt (a helyi adat megmaradt). */
+  skipped?: 'ures-szerver-halmaz'
+  /** Emberi figyelmeztetés a felületnek (a szelep oka). */
+  figyelmeztetes?: string
 }> {
   const supabase = getDesktopSupabase()
   const profile = await getLocalOwnProfile(userId)
@@ -4451,6 +4794,24 @@ export async function pullInventoryOfOwnCongregation(userId: string): Promise<{
     .eq('congregation_id', congregationId))
 
   if (error) throw new Error(`Supabase pullInventory: ${error.message}`)
+
+  // 0-sor-szelep (desk-sync-4): üres szerver-válasz + helyi adat → nincs csere.
+  const szelep = await tukorCsereSzelep({
+    cimke: 'Leltár',
+    localTables: ['leltar_tetelek_local'],
+    scopeSql: 'congregation_id = ?1',
+    scopeParams: [congregationId],
+    szerverSorok: (data ?? []).length,
+  })
+  if (szelep.kihagy) {
+    return {
+      pulledRows: 0,
+      mode: 'full',
+      lastPullIso: new Date().toISOString(),
+      skipped: 'ures-szerver-halmaz',
+      figyelmeztetes: szelep.figyelmeztetes,
+    }
+  }
 
   await dbExecute('DELETE FROM leltar_tetelek_local WHERE congregation_id = ?1', [congregationId])
 
@@ -4669,6 +5030,10 @@ export async function pullFilingOfOwnCongregation(userId: string): Promise<{
   pulledRows: number
   mode: 'full' | 'no-congregation'
   lastPullIso: string
+  /** 0-sor-szelep: a csere kimaradt (a helyi adat megmaradt). */
+  skipped?: 'ures-szerver-halmaz'
+  /** Emberi figyelmeztetés a felületnek (a szelep oka). */
+  figyelmeztetes?: string
 }> {
   const supabase = getDesktopSupabase()
   const profile = await getLocalOwnProfile(userId)
@@ -4684,6 +5049,24 @@ export async function pullFilingOfOwnCongregation(userId: string): Promise<{
     .eq('congregation_id', congregationId))
 
   if (error) throw new Error(`Supabase pullFiling: ${error.message}`)
+
+  // 0-sor-szelep (desk-sync-4): üres szerver-válasz + helyi adat → nincs csere.
+  const szelep = await tukorCsereSzelep({
+    cimke: 'Iktató',
+    localTables: ['iktato_local'],
+    scopeSql: 'congregation_id = ?1',
+    scopeParams: [congregationId],
+    szerverSorok: (data ?? []).length,
+  })
+  if (szelep.kihagy) {
+    return {
+      pulledRows: 0,
+      mode: 'full',
+      lastPullIso: new Date().toISOString(),
+      skipped: 'ures-szerver-halmaz',
+      figyelmeztetes: szelep.figyelmeztetes,
+    }
+  }
 
   await dbExecute('DELETE FROM iktato_local WHERE congregation_id = ?1', [congregationId])
 
@@ -4914,6 +5297,10 @@ export async function pullMinutesOfOwnCongregation(userId: string): Promise<{
   pulledRows: { jegyzokonyvek: number; resztvevok: number; napirendi_pontok: number; hatarozatok: number }
   mode: 'full' | 'no-congregation'
   lastPullIso: string
+  /** 0-sor-szelep: a csere kimaradt (a helyi adat megmaradt). */
+  skipped?: 'ures-szerver-halmaz'
+  /** Emberi figyelmeztetés a felületnek (a szelep oka). */
+  figyelmeztetes?: string
 }> {
   const supabase = getDesktopSupabase()
   const profile = await getLocalOwnProfile(userId)
@@ -4953,6 +5340,24 @@ export async function pullMinutesOfOwnCongregation(userId: string): Promise<{
     participantRows = (pRes.data ?? []) as unknown as Array<Record<string, unknown>>
     agendaRows = (aRes.data ?? []) as unknown as Array<Record<string, unknown>>
     resolutionRows = (rRes.data ?? []) as unknown as Array<Record<string, unknown>>
+  }
+
+  // 0-sor-szelep (desk-sync-4): üres szerver-válasz + helyi adat → nincs csere.
+  const szelep = await tukorCsereSzelep({
+    cimke: 'Jegyzőkönyvek',
+    localTables: ['presbiteri_jegyzokonyvek_local'],
+    scopeSql: 'congregation_id = ?1',
+    scopeParams: [congregationId],
+    szerverSorok: jkRows.length,
+  })
+  if (szelep.kihagy) {
+    return {
+      pulledRows: { jegyzokonyvek: 0, resztvevok: 0, napirendi_pontok: 0, hatarozatok: 0 },
+      mode: 'full',
+      lastPullIso: new Date().toISOString(),
+      skipped: 'ures-szerver-halmaz',
+      figyelmeztetes: szelep.figyelmeztetes,
+    }
   }
 
   // 3) TRUNCATE — fő tábla a saját gyülekezetre, altáblák minden saját jk-ra
@@ -5328,6 +5733,10 @@ export async function pullCemeteriesOfOwnCongregation(userId: string): Promise<{
   pulledRows: { cemeteries: number; plots: number; rentals: number; deceased: number }
   mode: 'full' | 'no-congregation'
   lastPullIso: string
+  /** 0-sor-szelep: a csere kimaradt (a helyi adat megmaradt). */
+  skipped?: 'ures-szerver-halmaz'
+  /** Emberi figyelmeztetés a felületnek (a szelep oka). */
+  figyelmeztetes?: string
 }> {
   const supabase = getDesktopSupabase()
   const profile = await getLocalOwnProfile(userId)
@@ -5373,6 +5782,24 @@ export async function pullCemeteriesOfOwnCongregation(userId: string): Promise<{
       if (eRes.error) throw new Error(`Supabase pullCemeteries/elhunyt: ${eRes.error.message}`)
       rentalRows = (bRes.data ?? []) as unknown as Array<Record<string, unknown>>
       deceasedRows = (eRes.data ?? []) as unknown as Array<Record<string, unknown>>
+    }
+  }
+
+  // 0-sor-szelep (desk-sync-4): üres szerver-válasz + helyi adat → nincs csere.
+  const szelep = await tukorCsereSzelep({
+    cimke: 'Sírhelyek',
+    localTables: ['sirhelytemeto_local'],
+    scopeSql: 'congregation_id = ?1',
+    scopeParams: [congregationId],
+    szerverSorok: cemRows.length,
+  })
+  if (szelep.kihagy) {
+    return {
+      pulledRows: { cemeteries: 0, plots: 0, rentals: 0, deceased: 0 },
+      mode: 'full',
+      lastPullIso: new Date().toISOString(),
+      skipped: 'ures-szerver-halmaz',
+      figyelmeztetes: szelep.figyelmeztetes,
     }
   }
 
@@ -5719,6 +6146,10 @@ export async function pullProgramsOfOwnCongregation(userId: string): Promise<{
   pulledRows: number
   mode: 'full' | 'no-congregation'
   lastPullIso: string
+  /** 0-sor-szelep: a csere kimaradt (a helyi adat megmaradt). */
+  skipped?: 'ures-szerver-halmaz'
+  /** Emberi figyelmeztetés a felületnek (a szelep oka). */
+  figyelmeztetes?: string
 }> {
   const supabase = getDesktopSupabase()
   const profile = await getLocalOwnProfile(userId)
@@ -5734,6 +6165,26 @@ export async function pullProgramsOfOwnCongregation(userId: string): Promise<{
     .eq('congregation_id', congregationId))
 
   if (error) throw new Error(`Supabase pullPrograms: ${error.message}`)
+
+  // 0-sor-szelep (desk-sync-4): a programnaptár ANON úton is 200 `[]`-t kap
+  // (nincs a 2026-04-17-es anon REVOKE-listán) → PIN-módban internettel eddig
+  // némán kiürült. Üres szerver-válasz + helyi adat → nincs csere.
+  const szelep = await tukorCsereSzelep({
+    cimke: 'Programok',
+    localTables: ['gyulekezeti_programok_local'],
+    scopeSql: 'congregation_id = ?1',
+    scopeParams: [congregationId],
+    szerverSorok: (data ?? []).length,
+  })
+  if (szelep.kihagy) {
+    return {
+      pulledRows: 0,
+      mode: 'full',
+      lastPullIso: new Date().toISOString(),
+      skipped: 'ures-szerver-halmaz',
+      figyelmeztetes: szelep.figyelmeztetes,
+    }
+  }
 
   await dbExecute('DELETE FROM gyulekezeti_programok_local WHERE congregation_id = ?1', [
     congregationId,
@@ -5893,6 +6344,10 @@ export async function pullAnnualReportsOfOwnCongregation(userId: string): Promis
   pulledRows: number
   mode: 'full' | 'no-congregation'
   lastPullIso: string
+  /** 0-sor-szelep: a csere kimaradt (a helyi adat megmaradt). */
+  skipped?: 'ures-szerver-halmaz'
+  /** Emberi figyelmeztetés a felületnek (a szelep oka). */
+  figyelmeztetes?: string
 }> {
   const supabase = getDesktopSupabase()
   const profile = await getLocalOwnProfile(userId)
@@ -5908,6 +6363,24 @@ export async function pullAnnualReportsOfOwnCongregation(userId: string): Promis
     .eq('congregation_id', congregationId))
 
   if (error) throw new Error(`Supabase pullAnnualReports: ${error.message}`)
+
+  // 0-sor-szelep (desk-sync-4): üres szerver-válasz + helyi adat → nincs csere.
+  const szelep = await tukorCsereSzelep({
+    cimke: 'Éves jelentés',
+    localTables: ['annual_reports_local'],
+    scopeSql: 'congregation_id = ?1',
+    scopeParams: [congregationId],
+    szerverSorok: (data ?? []).length,
+  })
+  if (szelep.kihagy) {
+    return {
+      pulledRows: 0,
+      mode: 'full',
+      lastPullIso: new Date().toISOString(),
+      skipped: 'ures-szerver-halmaz',
+      figyelmeztetes: szelep.figyelmeztetes,
+    }
+  }
 
   await dbExecute('DELETE FROM annual_reports_local WHERE congregation_id = ?1', [congregationId])
 
@@ -6028,6 +6501,8 @@ export interface AdrlocalityLocalRow {
 export async function pullAdrlocalityCatalog(): Promise<{
   pulledRows: number
   lastPullIso: string
+  skipped?: 'ures-szerver-halmaz'
+  figyelmeztetes?: string
 }> {
   const supabase = getDesktopSupabase()
   // 2026-07-24 (PR-8): lapozva — az országos település-katalógus jóval 1000
@@ -6037,6 +6512,24 @@ export async function pullAdrlocalityCatalog(): Promise<{
     .select('id, name, megye_id, country, postcode'))
 
   if (error) throw new Error(`Supabase pullAdrlocality: ${error.message}`)
+
+  // 0-sor-szelep (desk-sync-4): az országos katalógus sosem üres jogosan —
+  // üres válasz + helyi adat → nincs csere.
+  const szelep = await tukorCsereSzelep({
+    cimke: 'Település-katalógus',
+    localTables: ['adrlocality_local'],
+    scopeSql: '',
+    scopeParams: [],
+    szerverSorok: (data ?? []).length,
+  })
+  if (szelep.kihagy) {
+    return {
+      pulledRows: 0,
+      lastPullIso: new Date().toISOString(),
+      skipped: 'ures-szerver-halmaz',
+      figyelmeztetes: szelep.figyelmeztetes,
+    }
+  }
 
   await dbExecute('DELETE FROM adrlocality_local', [])
 

@@ -1878,6 +1878,14 @@
 .kt-cal-dot { width: 5px; height: 5px; border-radius: 50%; }
 .kt-cal-day.is-selected .kt-cal-dot { box-shadow: 0 0 0 1px color-mix(in oklab, white 60%, transparent); }
 .kt-cal-more { font-size: 8.5px; font-weight: 700; color: var(--muted-foreground); margin-left: 1px; }
+/* 2026-09-05 (naptár-rétegek): a réteg-pöttyök ALAKRA is különböznek a
+   programokétól (kör) — az anyakönyvi tény négyzet a típus színével, a
+   születésnap teli accent-pötty, a névnap üres karika (téma-tokenből, hogy
+   sötét módban is olvasható maradjon). */
+.kt-cal-dot--anyakonyv { border-radius: 2px; }
+.kt-cal-dot--szuletesnap { background: var(--accent); box-shadow: 0 0 0 1px color-mix(in oklab, var(--accent-foreground) 35%, transparent); }
+.kt-cal-dot--nevnap { background: transparent; box-shadow: inset 0 0 0 1.5px var(--primary); }
+.kt-cal-day.is-selected .kt-cal-dot--nevnap { box-shadow: inset 0 0 0 1.5px var(--primary-foreground); }
 .kt-cal-day.is-selected .kt-cal-more { color: color-mix(in oklab, var(--primary-foreground) 85%, transparent); }
 
 /* ── Kiválasztott nap agendája ── */
@@ -1953,6 +1961,37 @@
 .kt-prio { display: inline-flex; align-items: center; gap: 4px; font-size: 10.5px; font-weight: 700; padding: 3px 8px; border-radius: 999px; text-transform: uppercase; letter-spacing: 0.03em; line-height: 1.3; }
 .kt-prio-kiemelt { color: var(--accent-foreground); background: color-mix(in oklab, var(--accent) 60%, var(--card)); }
 .kt-prio-fontos { color: color-mix(in oklab, var(--destructive) 88%, var(--foreground)); background: color-mix(in oklab, var(--destructive) 14%, var(--card)); }
+
+/* ── 2026-09-05: anyakönyv ⇄ naptár jelzések az agenda-kártyán ── */
+.kt-anyakonyv-chip {
+  display: inline-flex; align-items: center; gap: 4px; font-size: 11px; font-weight: 600; line-height: 1.3;
+  padding: 3px 8px; border-radius: 999px;
+  color: color-mix(in oklab, var(--primary) 92%, var(--foreground));
+  background: color-mix(in oklab, var(--primary) 13%, var(--card));
+}
+.kt-agenda-linkrow { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 8px; }
+.kt-linkbtn {
+  display: inline-flex; align-items: center; gap: 5px; cursor: pointer; text-decoration: none;
+  font-family: var(--font-sans); font-size: 12px; font-weight: 600; line-height: 1.2;
+  min-height: 32px; padding: 6px 10px; border-radius: 9px;
+  color: var(--foreground); background: var(--card); border: 1px solid var(--kt-border-strong, var(--border));
+  transition: border-color 0.15s ease, background 0.15s ease, color 0.15s ease;
+}
+.kt-linkbtn:hover { border-color: var(--primary); color: var(--primary); }
+.kt-linkbtn:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
+.kt-linkbtn-primary { color: var(--primary-foreground); background: var(--primary); border-color: var(--primary); }
+.kt-linkbtn-primary:hover { color: var(--primary-foreground); background: color-mix(in oklab, var(--primary) 88%, var(--foreground)); }
+.kt-linkbtn-muted { color: var(--muted-foreground); }
+@media (pointer: coarse) { .kt-linkbtn { min-height: 44px; } }
+/* Réteg-kártya (anyakönyvi tény / születésnap / névnap): nem kattintható, nincs művelet */
+.kt-agenda-card--reteg { cursor: default; }
+.kt-agenda-card--reteg:hover { border-color: var(--border); box-shadow: none; }
+.kt-agenda-bar--szuletesnap { background: var(--accent); }
+.kt-agenda-bar--nevnap { background: var(--primary); }
+.kt-reteg-tile--szuletesnap { color: var(--accent-foreground); background: color-mix(in oklab, var(--accent) 45%, var(--card)); border-color: color-mix(in oklab, var(--accent) 60%, transparent); }
+.kt-reteg-tile--nevnap { color: var(--primary); background: color-mix(in oklab, var(--primary) 12%, var(--card)); border-color: color-mix(in oklab, var(--primary) 30%, transparent); }
+.kt-type-chip--szuletesnap { color: var(--accent-foreground); background: color-mix(in oklab, var(--accent) 45%, var(--card)); }
+.kt-type-chip--nevnap { color: var(--primary); background: color-mix(in oklab, var(--primary) 12%, transparent); }
 
 .kt-agenda-actions { display: flex; flex-direction: column; align-items: center; gap: 6px; flex-shrink: 0; }
 .kt-done-toggle {
@@ -2055,15 +2094,23 @@
 .kt-dash-trio > * { min-width: 0; }
 @media (min-width: 1280px) {
   .kt-dash-trio {
-    /* a középső (naptáras) csempe kap egy hajszállal több szélességet */
-    grid-template-columns: minmax(0, 1fr) minmax(0, 1.1fr) minmax(0, 1fr);
+    /* 2026-09-05 (Endre 2. pontja, D8): a KÖZÉPSŐ (naptáras) csempe érdemben
+       szélesebb. Eddig `1fr 1.1fr 1fr` volt → 1920px-en ≈548px, és a belső
+       két hasábos mód csak ~2300px-es ablaknál kapcsolt be. Az új arány
+       1280px-en ≈408px, 1536-on ≈580px, 1920-on ≈772px csempét ad — a sor
+       EGY sorban marad (2026-08-10-i „egy méretű sor" kérés), a két oldalsó
+       csempe arányosan keskenyebb. Számok: scripts/selftest-naptar-geometria.mjs */
+    grid-template-columns: minmax(0, 0.85fr) minmax(0, 1.4fr) minmax(0, 0.85fr);
     /* közös MINIMUM sormagasság — ha bármelyik tartalom magasabb, a sor
        együtt nő, de a három csempe akkor is azonos magas marad */
     grid-auto-rows: minmax(var(--kt-trio-h, 35rem), auto);
   }
 }
 @media (min-width: 1536px) {
-  .kt-dash-trio { --kt-trio-h: 37rem; }
+  .kt-dash-trio {
+    --kt-trio-h: 37rem;
+    grid-template-columns: minmax(0, 0.8fr) minmax(0, 1.6fr) minmax(0, 0.8fr);
+  }
 }
 
 /* „+N további" sor — a levágott listaelemek helyett (görgetés helyett) */
@@ -2094,9 +2141,11 @@
 .kt-cal--compact {
   --kt-cal-gap: 4px;
   /* FELSŐ korlát a cellára — a tényleges méret ennél KISEBB is lehet.
-     48px: ennyi fér el a 35rem-es közös sormagasságban a fejléc/navigáció/
-     napi agenda/akciósáv mellett, anélkül hogy a sor eltorzulna. */
-  --kt-cell-max: 48px;
+     2026-09-05: 48 → 52px (D8) — a szélesebb középső csempével a rács
+     amúgy is nőne, a sor (`grid-auto-rows: minmax(35rem, auto)`) vele nő.
+     ⚠️ A két hasábos váltás küszöbe (`TWO_COL_MIN`, program-scheduler.tsx)
+     ebből következik: két hasábban sem kaphat KISEBB cellát a naptár. */
+  --kt-cell-max: 52px;
   gap: var(--kt-cal-gap);
   max-width: calc(var(--kt-cell-max) * 7 + var(--kt-cal-gap) * 6);
   margin-inline: auto;
@@ -2162,6 +2211,33 @@
 .kt-widget--tile .kt-month-summary { font-size: 11.5px; }
 .kt-widget--tile .kt-viewtoggle { padding: 2px; }
 .kt-widget--tile .kt-viewtoggle button { font-size: 11px; padding: 4px 8px; }
+/* ── 2026-09-05: réteg-kapcsolók + réteg-figyelmeztetés a csempén ── */
+.kt-reteg-kapcsolok { display: flex; flex-wrap: wrap; align-items: center; gap: 5px; padding: 0 14px 6px; }
+.kt-reteg-chip {
+  display: inline-flex; align-items: center; gap: 5px; cursor: pointer;
+  font-family: var(--font-sans); font-size: 11px; font-weight: 600; line-height: 1.2;
+  min-height: 30px; padding: 4px 9px; border-radius: 999px;
+  color: var(--muted-foreground); background: var(--muted); border: 1px solid transparent;
+  transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+}
+.kt-reteg-chip:hover { color: var(--foreground); }
+.kt-reteg-chip:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
+.kt-reteg-chip.is-on { color: var(--primary); background: color-mix(in oklab, var(--primary) 12%, var(--card)); border-color: color-mix(in oklab, var(--primary) 35%, transparent); }
+.kt-reteg-chip.is-on.kt-reteg-chip--szuletesnap { color: var(--accent-foreground); background: color-mix(in oklab, var(--accent) 45%, var(--card)); border-color: color-mix(in oklab, var(--accent) 60%, transparent); }
+@media (pointer: coarse) { .kt-reteg-chip { min-height: 44px; padding: 6px 12px; } }
+.kt-reteg-hibak {
+  display: flex; align-items: flex-start; gap: 7px; margin: 0 14px 8px;
+  padding: 7px 10px; border-radius: 10px; font-size: 11.5px; line-height: 1.35;
+  color: var(--destructive); background: color-mix(in oklab, var(--destructive) 9%, var(--card));
+  border: 1px solid color-mix(in oklab, var(--destructive) 30%, transparent);
+}
+.kt-reteg-hibak svg { flex-shrink: 0; margin-top: 1px; }
+.kt-reteg-hibak p { margin: 0; }
+.kt-reteg-hibak p + p { margin-top: 3px; }
+.kt-widget--tile .kt-agenda-linkrow { margin-top: 5px; gap: 5px; }
+.kt-widget--tile .kt-linkbtn { font-size: 11px; min-height: 28px; padding: 4px 8px; }
+@media (pointer: coarse) { .kt-widget--tile .kt-linkbtn { min-height: 44px; } }
+.kt-widget--tile .kt-anyakonyv-chip { font-size: 10px; padding: 2px 7px; }
 .kt-widget--tile .kt-dayagenda {
   margin-top: 10px; display: flex; flex-direction: column; flex: 1 1 auto; min-height: 0;
 }
@@ -2257,8 +2333,12 @@
   font-family: var(--font-sans); color: var(--foreground);
 }
 @keyframes kt-fade { from { opacity: 0; } to { opacity: 1; } }
+/* 2026-09-05 (cal-ux-2): a modál nagy képernyőn is fix 480px volt — 21
+   típusnál a rács 10 sorra tört, hosszú görgetéssel. clamp(): telefonon
+   marad a teljes szélesség (a 480px-es minimumot a 100%-os width fogja meg),
+   nagy monitoron 42vw, legfeljebb 640px. */
 .kt-modal {
-  width: 100%; max-width: 480px; overflow: visible; animation: kt-modal-in 0.22s cubic-bezier(0.2, 0.7, 0.2, 1);
+  width: 100%; max-width: clamp(480px, 42vw, 640px); overflow: visible; animation: kt-modal-in 0.22s cubic-bezier(0.2, 0.7, 0.2, 1);
   background: var(--card); border: 1px solid var(--border); border-radius: var(--radius-card, 16px);
   box-shadow: var(--kt-shadow-pop); margin-bottom: 5vh;
 }
@@ -2304,9 +2384,22 @@
 .kt-typeselect-label { font-size: 14px; font-weight: 600; color: var(--foreground); flex: 1; }
 .kt-typeselect-caret { color: var(--muted-foreground); transition: transform 0.18s ease; }
 .kt-typeselect[aria-expanded="true"] .kt-typeselect-caret { transform: rotate(180deg); }
-.kt-typegrid {
-  display: grid; grid-template-columns: repeat(2, 1fr); gap: 6px; margin-top: 4px;
+/* 2026-09-05: a rács annyi oszlopot tör, amennyi 140px-es cella elfér (a
+   640px-es modálban 3–4), és CSOPORTOKRA bomlik (gyülekezeti / anyakönyvi /
+   szabadság) — 21 típus egy kétoszlopos listában átláthatatlan volt. */
+.kt-typegroups {
+  display: flex; flex-direction: column; gap: 8px; margin-top: 4px;
   padding: 8px; background: var(--kt-card-2); border: 1px solid var(--border); border-radius: 12px;
+}
+.kt-typegroup { display: flex; flex-direction: column; gap: 6px; }
+.kt-typegroup-title {
+  display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 8px;
+  font-size: 10.5px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase;
+  color: var(--muted-foreground); padding: 2px 2px 0;
+}
+.kt-typegroup-hint { font-weight: 500; letter-spacing: 0; text-transform: none; font-size: 11px; }
+.kt-typegrid {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 6px;
 }
 .kt-typecell {
   display: flex; align-items: center; gap: 8px; cursor: pointer; text-align: left;
@@ -2335,6 +2428,11 @@
 .kt-switch-thumb { position: absolute; top: 2px; left: 2px; width: 18px; height: 18px; border-radius: 50%; background: var(--card); box-shadow: 0 1px 3px rgba(0,0,0,0.25); transition: transform 0.18s ease; }
 .kt-switch input:checked + .kt-switch-track { background: var(--primary); }
 .kt-switch input:checked + .kt-switch-track .kt-switch-thumb { transform: translateX(16px); }
+/* 2026-09-05: magán típusnál a publikus kapcsoló LETILTVA — látszik is, hogy az */
+.kt-switch.is-disabled { opacity: 0.55; cursor: not-allowed; }
+.kt-switch.is-disabled .kt-switch-track { background: var(--muted); }
+.kt-hint-magan { display: flex; align-items: flex-start; gap: 6px; }
+.kt-hint-magan svg { flex-shrink: 0; margin-top: 2px; color: var(--muted-foreground); }
 
 /* Szegmentált vezérlő (prioritás, ismétlődés) */
 .kt-segmented { display: flex; gap: 4px; background: var(--muted); padding: 4px; border-radius: 11px; }
@@ -2387,8 +2485,23 @@
   .kt-batch-grid { grid-template-columns: repeat(4, 1fr); }
 }
 
+/* 2026-09-05: a dátum/idő/helyszín blokk 640px fölött két hasáb (cal-ux-2) */
+.kt-form-2col { display: grid; grid-template-columns: minmax(0, 1fr); gap: 14px; }
+@media (min-width: 640px) {
+  .kt-form-2col { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); align-items: start; }
+}
+
 @media (max-width: 520px) {
   .kt-field-2 { grid-template-columns: 1fr; }
+  /* 2026-09-05 (cal-ux-14): 375px-en az ismétlődés 5 gombja nem fért egy sorba
+     (túlcsordult), az emoji-rács fix 290px-es abszolút doboza pedig kilógott a
+     modálból. A szegmens tördel; a rács a bal élhez igazodik és a képernyőhöz mér. */
+  .kt-segmented { flex-wrap: wrap; }
+  .kt-seg { flex: 1 1 auto; min-width: 0; }
+  /* az „egyéb" blokk egy hasábra esik, így a jelölő-mező teljes szélességű, és a
+     bal élhez igazított emoji-rács biztosan a modálon belül marad */
+  .kt-egyeb { grid-template-columns: 1fr; }
+  .kt-emoji-grid { width: min(290px, calc(100vw - 48px)); left: 0; right: auto; }
 }
 
 /* ══════════════════════════════════════════════════════════════════════════
@@ -2447,8 +2560,10 @@
 
 /* ── Éves terv előnézet — alkalmazáson belüli reszponzív ablak (2026-06-08) ── */
 .kt-eves-overlay { align-items: center; padding: 2.5vh 2vw; }
+/* 2026-09-05 (D8): 1180×920px-en plafonozott — a fekvő A4 előnézet nagy
+   monitoron kicsi maradt. */
 .kt-eves-modal {
-  width: min(1180px, 96vw); height: min(92vh, 920px);
+  width: min(1500px, 96vw); height: min(94vh, 1100px);
   display: flex; flex-direction: column; overflow: hidden;
   background: var(--card); border: 1px solid var(--border);
   border-radius: var(--radius-card, 16px); box-shadow: var(--kt-shadow-pop);

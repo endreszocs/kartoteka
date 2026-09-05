@@ -23,6 +23,8 @@ import {
   formatHungarianDate,
 } from '@/lib/utils/emleklap-data-mapper'
 import { toast } from 'sonner'
+// 2026-09-05: HELYI „ma" — az UTC-s toISOString() éjfél és hajnali 3 között az előző napot adta.
+import { todayYmd } from '@/lib/utils/program-day'
 
 // Jól látható input-stílus (felhasználói kérés alapján)
 const FIELD_INPUT_CLASS = 'bg-white shadow-sm border-slate-300'
@@ -36,6 +38,18 @@ interface MarriageDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
   congregationName?: string
+  /**
+   * 2026-09-05 (naptár ⇄ anyakönyv, D1): a naptár-csempéről indított
+   * anyakönyvezés a TERVEZETT program napjával nyitja a dialógust. Csak ÚJ
+   * rögzítésnél számít; szerkesztéskor a bejegyzés saját dátuma az úr.
+   */
+  initialDate?: string | null
+  /**
+   * Sikeres mentés után a bejegyzés `id`-jával hívódik (a bezárás ELŐTT) — a
+   * naptár ezzel köti a programot a bejegyzéshez. Az Anyakönyv fülön nincs
+   * megadva, ott a viselkedés betűre a korábbi.
+   */
+  onSaved?: (id: number) => void
   editEntry?: {
     id: number
     datum?: string
@@ -68,7 +82,7 @@ interface MarriageDialogProps {
   } | null
 }
 
-export function MarriageDialog({ open, onOpenChange, congregationName = '', editEntry }: MarriageDialogProps) {
+export function MarriageDialog({ open, onOpenChange, congregationName = '', editEntry, initialDate, onSaved }: MarriageDialogProps) {
   const [loading, setLoading] = useState(false)
   const [groom, setGroom] = useState<MemberSearchResult | null>(null)
   const [bride, setBride] = useState<MemberSearchResult | null>(null)
@@ -177,7 +191,9 @@ export function MarriageDialog({ open, onOpenChange, congregationName = '', edit
         return
       }
       setGroom(null); setBride(null)
-      setDatum(new Date().toISOString().slice(0, 10))
+      // 2026-09-05: a naptárból a tervezett program napja, különben a HELYI mai nap.
+      const kezdoDatum = initialDate || todayYmd()
+      setDatum(kezdoDatum)
       // 2026-08-25 (Endre): új rögzítésnél a munkanapló-kapcsoló ALAPBÓL BE.
       setHlevel(''); setLelkesz(''); setTanuk(''); setVegyes(false); setMunkanaploba(true); setMegj('')
       setHusbandBirthPlace(''); setWifeBirthPlace('')
@@ -186,12 +202,12 @@ export function MarriageDialog({ open, onOpenChange, congregationName = '', edit
         const savedGondnok = localStorage.getItem('kartoteka.emleklap.gondnokName')
         if (savedGondnok) setGondnok(savedGondnok)
       } catch {}
-      getNextEgyhaziSzam('marriage', new Date().getFullYear()).then(v => {
+      getNextEgyhaziSzam('marriage', Number(kezdoDatum.slice(0, 4)) || new Date().getFullYear()).then(v => {
         if (!cancelled) setEgyhaziSzam(v)
       })
     })
     return () => { cancelled = true }
-  }, [open, editEntry])
+  }, [open, editEntry, initialDate])
 
   // 2026-05-30: amikor a vőlegény / menyasszony változik, lekérdezzük a
   // tag-rekord szerinti születési helységet — hintként mutatjuk a UI-n,
@@ -274,9 +290,9 @@ export function MarriageDialog({ open, onOpenChange, congregationName = '', edit
 
   // 2026-08-25: a mentés eredménye a munkanapló-előtöltést is hozza (ha a
   // kapcsoló BE volt) — a hívó ezzel nyitja meg a munkanapló-rögzítőt.
-  async function handleSubmit(): Promise<{ ok: boolean; worklogEntry: WorklogEntry | null }> {
-    if (!groom || !bride) { toast.error('Mindkét fél kötelező!'); return { ok: false, worklogEntry: null } }
-    if (!datum) { toast.error('A dátum kötelező!'); return { ok: false, worklogEntry: null } }
+  async function handleSubmit(): Promise<{ ok: boolean; id: number | null; worklogEntry: WorklogEntry | null }> {
+    if (!groom || !bride) { toast.error('Mindkét fél kötelező!'); return { ok: false, id: null, worklogEntry: null } }
+    if (!datum) { toast.error('A dátum kötelező!'); return { ok: false, id: null, worklogEntry: null } }
     setLoading(true)
     const result = await saveMarriage({
       id: editEntry?.id,
@@ -296,12 +312,14 @@ export function MarriageDialog({ open, onOpenChange, congregationName = '', edit
       verse_reference: verseReference || null,
     })
     setLoading(false)
-    if (result.error) { toast.error(result.error); return { ok: false, worklogEntry: null } }
+    if (result.error) { toast.error(result.error); return { ok: false, id: null, worklogEntry: null } }
     toast.success('Házasság rögzítve!')
     // 2026-08-01 (PR-18): dupla-tagsági figyelmeztetés az auto-család őrtől
     if ('warning' in result && result.warning) toast.warning(result.warning, { duration: 9000 })
     return {
       ok: true,
+      // 2026-09-05: a bejegyzés id-ja a hívónak (naptár ⇄ anyakönyv kötés).
+      id: 'id' in result && typeof result.id === 'number' ? result.id : null,
       worklogEntry: 'worklogEntry' in result && result.worklogEntry
         ? (result.worklogEntry as WorklogEntry)
         : null,
@@ -326,6 +344,7 @@ export function MarriageDialog({ open, onOpenChange, congregationName = '', edit
   async function handleSaveOnly() {
     const res = await handleSubmit()
     if (!res.ok) return
+    if (res.id != null) onSaved?.(res.id)
     onOpenChange(false)
     maybeOpenWorklog(res.worklogEntry)
   }
@@ -350,6 +369,7 @@ export function MarriageDialog({ open, onOpenChange, congregationName = '', edit
     }
     const res = await handleSubmit()
     if (!res.ok) return
+    if (res.id != null) onSaved?.(res.id)
     setTimeout(() => {
       handlePrint()
       setTimeout(() => {
@@ -379,6 +399,10 @@ export function MarriageDialog({ open, onOpenChange, congregationName = '', edit
     </head><body>${html}<script>window.onload = () => { setTimeout(() => window.print(), 200); };</script></body></html>`)
     win.document.close()
   }
+
+  // 2026-09-05: a jövőbeli dátum NEM tiltott (a naptárból a tervezett napra
+  // nyílik a dialógus), csak JELEZZÜK — az anyakönyv a megtörtént eseményt rögzíti.
+  const jovobeli = !!datum && datum > todayYmd()
 
   return (
     <>
@@ -425,6 +449,11 @@ export function MarriageDialog({ open, onOpenChange, congregationName = '', edit
                 <Input type="date" value={datum} onChange={e => setDatum(e.target.value)} className={FIELD_INPUT_CLASS} />
               </div>
             </div>
+            {jovobeli && (
+              <p className="text-[11px] font-medium text-destructive">
+                ⚠️ A dátum a jövőben van — az anyakönyv a MEGTÖRTÉNT eseményt rögzíti. Ha még csak tervezed az alkalmat, a naptárban programként is rögzítheted, és a megtörténte után anyakönyvezheted.
+              </p>
+            )}
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div className="space-y-1.5"><Label>Lelkész</Label><Input value={lelkesz} onChange={e => setLelkesz(e.target.value)} className={FIELD_INPUT_CLASS} /></div>

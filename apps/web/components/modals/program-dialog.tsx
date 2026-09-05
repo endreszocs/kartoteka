@@ -9,14 +9,15 @@ import { createPortal } from 'react-dom'
 import { useForm, useWatch, type FieldErrors } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import {
-  CalendarDays, X, MapPin, Clock, ChevronDown, Star, Flag, Repeat, Check,
+  CalendarDays, X, MapPin, Clock, ChevronDown, Star, Flag, Repeat, Check, Lock,
 } from 'lucide-react'
 import { programSchema, type ProgramInput } from '@/lib/validations/dashboard'
 import { saveProgram, createImahetNaplosorok, getWeboldalEsemenyKapu } from '@/app/(dashboard)/programs/actions'
 import {
-  PROGRAM_TYPES, PROG_TIPUS_LABELS, PROG_TIPUS_COLOR,
+  PROGRAM_TYPES, PROG_TIPUS_LABELS,
   PROGRAM_PRIORITIES, PROG_PRIORITAS_LABELS,
   ISMETLODES_TYPES, ISMETLODES_LABELS, EMOJI_LIST, HU_DAYS_SHORT,
+  ANYAKONYVI_PROGRAM_TIPUSOK, isMaganProgramTipus, isAnyakonyviProgramTipus,
 } from '@/lib/constants/dashboard'
 import {
   PROGRAM_SABLONOK, FIT7_SZINTEK, sablonFelismeres, sablonZaroDatum,
@@ -24,7 +25,7 @@ import {
   type ProgramSablon, type SablonKulcs, type Fit7Szint,
 } from '@/lib/constants/program-sablonok'
 import type { Program, ProgramTipus } from '@/lib/constants/dashboard'
-import { PROG_TIPUS_ICON } from '@/components/dashboard/program-icons'
+import { tipusIkon, tipusCimke, tipusSzin } from '@/components/dashboard/program-icons'
 import { useModalFocusTrap } from '@/components/modals/use-modal-focus-trap'
 import { toast } from 'sonner'
 
@@ -36,6 +37,39 @@ interface ProgramDialogProps {
 }
 
 const PRIO_ICON = { fontos: Flag, kiemelt: Star } as const
+
+/**
+ * 2026-09-05 (Endre 2. pontja): a típusrács CSOPORTOSÍTVA. 21 típus egyetlen
+ * rácsban átláthatatlan volt; a három csoport a lelkész fejében is így válik
+ * szét: gyülekezeti alkalmak (publikálhatók), tervezett anyakönyvi alkalmak
+ * (magán — a név az anyakönyvből jön az összekötés után), szabadság (magán).
+ */
+const TIPUS_CSOPORTOK: ReadonlyArray<{ cim: string; magyarazat?: string; tipusok: readonly ProgramTipus[] }> = [
+  {
+    cim: 'Gyülekezeti alkalmak',
+    tipusok: PROGRAM_TYPES.filter((t) => !isMaganProgramTipus(t)),
+  },
+  {
+    cim: 'Anyakönyvi alkalmak',
+    magyarazat: 'magán — a naptárból anyakönyvezhető, a weboldalra sosem kerül',
+    tipusok: ANYAKONYVI_PROGRAM_TIPUSOK,
+  },
+  {
+    cim: 'Szabadság',
+    magyarazat: 'magán — többnapos, egész napos; a helyettes a megjegyzésbe',
+    tipusok: ['szabadsag'],
+  },
+]
+
+/**
+ * A típusválasztás által AUTOMATIKUSAN adott címek. Csak ezeket cseréljük le
+ * másik típusra váltáskor — a lelkész saját címét sosem írjuk felül.
+ * Anyakönyvi típusnál a cím NÉV NÉLKÜLI (D1): a név az anyakönyvi sorból
+ * olvasható, miután a program össze lett kötve vele.
+ */
+const AUTO_CIMEK = new Set<string>(
+  [...ANYAKONYVI_PROGRAM_TIPUSOK, 'szabadsag' as const].map((t) => PROG_TIPUS_LABELS[t]),
+)
 
 export function ProgramDialog({ open, onOpenChange, editProgram, defaultDate }: ProgramDialogProps) {
   const [loading, setLoading] = useState(false)
@@ -174,6 +208,43 @@ export function ProgramDialog({ open, onOpenChange, editProgram, defaultDate }: 
 
   if (!open || typeof document === 'undefined') return null
 
+  // 2026-09-05: a MAGÁN típusok (szabadság + tervezett anyakönyvi alkalom)
+  // sosem publikusak; a szabadság idő és prioritás nélküli (D2).
+  const magan = isMaganProgramTipus(tipus)
+  const anyakonyvi = isAnyakonyviProgramTipus(tipus)
+  const szabadsag = tipus === 'szabadsag'
+
+  /**
+   * Típusválasztás a rácsból. MIÉRT nem effekt: a típus változásához kötött
+   * mellékhatások (publikus ki, cím-alapérték, szabadság-mód) EGYSZER, a
+   * kattintáskor futnak — effektben a szerkesztésre megnyitott program
+   * betöltése is „átírná" a mentett értékeket (és a CI a szinkron setState-et
+   * effektben tiltja).
+   */
+  function valasztTipus(t: ProgramTipus) {
+    setValue('tipus', t)
+    setTypeOpen(false)
+    // Magán típus SOHA nem publikus — a mentés és a DB-trigger is kikapcsolná,
+    // de a felület ne ígérjen olyat, amit a rendszer visszavon.
+    if (isMaganProgramTipus(t)) setValue('publikus', false)
+    // Cím-alapérték csak akkor, ha a lelkész még nem írt sajátot (üres, vagy
+    // egy korábbi automatikus típus-cím). Anyakönyvi típusnál NÉV NÉLKÜL.
+    const cim = (getValues('cim') || '').trim()
+    if (!cim || AUTO_CIMEK.has(cim)) {
+      if (isAnyakonyviProgramTipus(t) || t === 'szabadsag') setValue('cim', PROG_TIPUS_LABELS[t], { shouldValidate: true })
+      else if (AUTO_CIMEK.has(cim)) setValue('cim', '')
+    }
+    if (t === 'szabadsag') {
+      // D2: a szabadság alapból TÖBBNAPOS és EGÉSZ NAPOS; idő és ismétlődés nincs.
+      setMultiDay(true)
+      setAllDay(true)
+      setValue('ido_kezdes', '')
+      setValue('ido_befejezes', '')
+      setValue('ismetlodes_tipus', '')
+      setValue('ismetlodes_vege', '')
+    }
+  }
+
   // 2026-08-25 (sablonok): a chip kitölti a nevet/típust/megjegyzést, bekapcsolja
   // a többnapos kapcsolót, és ha van már kezdő dátum, a záró dátumot is számolja.
   function applySablon(sablon: ProgramSablon) {
@@ -202,8 +273,11 @@ export function ProgramDialog({ open, onOpenChange, editProgram, defaultDate }: 
     const payload: ProgramInput = {
       ...data,
       datum_vege: multiDay ? data.datum_vege : '',
-      ido_kezdes: allDay ? '' : data.ido_kezdes,
-      ido_befejezes: allDay ? '' : data.ido_befejezes,
+      // Szabadságnál (D2) nincs időpont; a magán típus sosem publikus — a
+      // mentés és a DB-trigger is így tenné, de a kérés is legyen tiszta.
+      ido_kezdes: allDay || szabadsag ? '' : data.ido_kezdes,
+      ido_befejezes: allDay || szabadsag ? '' : data.ido_befejezes,
+      publikus: magan ? false : data.publikus,
     }
     setLoading(true)
     const result = await saveProgram(payload)
@@ -259,11 +333,12 @@ export function ProgramDialog({ open, onOpenChange, editProgram, defaultDate }: 
     toast.error(elso || 'A program nem menthető — ellenőrizd a kitöltött mezőket.')
   }
 
-  const selectedLabel = tipus === 'egyeb' && egyediNev
-    ? egyediNev
-    : PROG_TIPUS_LABELS[tipus] || 'Egyéb'
-  const SelectedIcon = PROG_TIPUS_ICON[tipus]
-  const selectedColor = PROG_TIPUS_COLOR[tipus]
+  // 2026-09-05 (cal-ux-6): ISMERETLEN típus-értékre fallback (gombostű,
+  // „Ismeretlen típus") — eddig a `PROG_TIPUS_ICON[tipus]` undefined-ja React-
+  // hibával borította a szerkesztő-ablakot, ha a DB a kód előtt kapott új típust.
+  const selectedLabel = tipus === 'egyeb' && egyediNev ? egyediNev : tipusCimke(tipus)
+  const SelectedIcon = tipusIkon(tipus)
+  const selectedColor = tipusSzin(tipus)
 
   // 2026-08-25 (Imahét): a napi beosztás sorai — cím-felismerés alapján (kézzel
   // beírt „imahét" címre is megjelenik), többnapos programnál, legfeljebb 9 nap.
@@ -300,7 +375,9 @@ export function ProgramDialog({ open, onOpenChange, editProgram, defaultDate }: 
             <span className="kt-modal-ico"><CalendarDays size={18} /></span>
             <div>
               <h3 id={titleId}>{editProgram ? 'Program szerkesztése' : 'Új program'}</h3>
-              <div className="kt-modal-sub">Gyülekezeti alkalom rögzítése</div>
+              <div className="kt-modal-sub">
+                {szabadsag ? 'A lelkész szabadsága — belső, nem publikus' : anyakonyvi ? 'Tervezett anyakönyvi alkalom — belső, nem publikus' : 'Gyülekezeti alkalom rögzítése'}
+              </div>
             </div>
           </div>
           <button type="button" className="kt-modal-close" onClick={() => onOpenChange(false)} aria-label="Bezárás">
@@ -314,8 +391,19 @@ export function ProgramDialog({ open, onOpenChange, editProgram, defaultDate }: 
           {/* Cím */}
           <div className="kt-field">
             <label className="kt-label">Program neve <span className="kt-req">*</span></label>
-            <input className={`kt-input${errors.cim ? ' is-err' : ''}`} placeholder="Pl. Vasárnapi istentisztelet" autoFocus {...register('cim')} />
+            <input
+              className={`kt-input${errors.cim ? ' is-err' : ''}`}
+              placeholder={anyakonyvi ? 'Pl. Keresztelő (név nélkül)' : szabadsag ? 'Pl. Szabadság' : 'Pl. Vasárnapi istentisztelet'}
+              autoFocus
+              {...register('cim')}
+            />
             {errors.cim && <p className="kt-err">{errors.cim.message}</p>}
+            {anyakonyvi && (
+              <p className="kt-modal-sub">
+                A tervezett alkalom címébe ne írj nevet — mentés után a naptár „Anyakönyvezés" gombjával
+                rögzíted a bejegyzést, és a név onnan olvasható.
+              </p>
+            )}
           </div>
 
           {/* Sablonok — csak ÚJ programnál (2026-08-25) */}
@@ -375,23 +463,33 @@ export function ProgramDialog({ open, onOpenChange, editProgram, defaultDate }: 
               <ChevronDown size={16} className="kt-typeselect-caret" />
             </button>
             {typeOpen && (
-              <div className="kt-typegrid">
-                {PROGRAM_TYPES.map((t) => {
-                  const TIcon = PROG_TIPUS_ICON[t]
-                  const color = PROG_TIPUS_COLOR[t]
-                  return (
-                    <button
-                      key={t}
-                      type="button"
-                      className={`kt-typecell${t === tipus ? ' is-active' : ''}`}
-                      style={{ ['--type-color' as string]: color }}
-                      onClick={() => { setValue('tipus', t); setTypeOpen(false) }}
-                    >
-                      <span className="kt-typecell-ico" style={{ color }}><TIcon size={17} /></span>
-                      <span className="kt-typecell-label">{PROG_TIPUS_LABELS[t]}</span>
-                    </button>
-                  )
-                })}
+              <div className="kt-typegroups">
+                {TIPUS_CSOPORTOK.map((cs) => (
+                  <div key={cs.cim} className="kt-typegroup">
+                    <div className="kt-typegroup-title">
+                      {cs.cim}
+                      {cs.magyarazat && <span className="kt-typegroup-hint">{cs.magyarazat}</span>}
+                    </div>
+                    <div className="kt-typegrid">
+                      {cs.tipusok.map((t) => {
+                        const TIcon = tipusIkon(t)
+                        const color = tipusSzin(t)
+                        return (
+                          <button
+                            key={t}
+                            type="button"
+                            className={`kt-typecell${t === tipus ? ' is-active' : ''}`}
+                            style={{ ['--type-color' as string]: color }}
+                            onClick={() => valasztTipus(t)}
+                          >
+                            <span className="kt-typecell-ico" style={{ color }}><TIcon size={17} /></span>
+                            <span className="kt-typecell-label">{PROG_TIPUS_LABELS[t]}</span>
+                          </button>
+                        )
+                      })}
+                    </div>
+                  </div>
+                ))}
               </div>
             )}
           </div>
@@ -428,18 +526,40 @@ export function ProgramDialog({ open, onOpenChange, editProgram, defaultDate }: 
           <div className="kt-field">
             <div className="kt-toggle-row">
               <label className="kt-switch">
-                <input type="checkbox" checked={multiDay} onChange={(e) => setMultiDay(e.target.checked)} />
+                <input
+                  type="checkbox"
+                  checked={multiDay}
+                  onChange={(e) => {
+                    const be = e.target.checked
+                    setMultiDay(be)
+                    // 2026-09-05 (cal-ux-5): kikapcsoláskor a REJTETT záró dátum ürül —
+                    // különben a zod egy nem látható mezőn bukott („hangos hiba a semmire").
+                    if (!be) setValue('datum_vege', '')
+                  }}
+                />
                 <span className="kt-switch-track"><span className="kt-switch-thumb" /></span>
                 Többnapos
               </label>
               <label className="kt-switch">
-                <input type="checkbox" checked={allDay} onChange={(e) => setAllDay(e.target.checked)} />
+                <input
+                  type="checkbox"
+                  checked={allDay}
+                  onChange={(e) => {
+                    const be = e.target.checked
+                    setAllDay(be)
+                    // Egész naposra váltva a rejtett idő-mezők is ürülnek (cal-ux-5).
+                    if (be) { setValue('ido_kezdes', ''); setValue('ido_befejezes', '') }
+                  }}
+                />
                 <span className="kt-switch-track"><span className="kt-switch-thumb" /></span>
                 Egész napos
               </label>
             </div>
           </div>
 
+          {/* 2026-09-05 (cal-ux-2): 640px fölött a dátum, az idő és a helyszín két
+              hasábban — a szélesebb modál ne legyen egy hosszú, keskeny oszlop. */}
+          <div className="kt-form-2col">
           <div className={multiDay ? 'kt-field-2' : 'kt-field'}>
             <div className="kt-field">
               <label className="kt-label">{multiDay ? 'Kezdő dátum' : 'Dátum'} <span className="kt-req">*</span></label>
@@ -455,8 +575,8 @@ export function ProgramDialog({ open, onOpenChange, editProgram, defaultDate }: 
             )}
           </div>
 
-          {/* Idő (ha nem egész napos) */}
-          {!allDay && (
+          {/* Idő (ha nem egész napos; szabadságnál soha — D2) */}
+          {!allDay && !szabadsag && (
             <div className="kt-field-2">
               <div className="kt-field">
                 <label className="kt-label"><Clock size={12} style={{ display: 'inline', verticalAlign: '-1px', marginRight: 4 }} />Kezdés</label>
@@ -464,7 +584,9 @@ export function ProgramDialog({ open, onOpenChange, editProgram, defaultDate }: 
               </div>
               <div className="kt-field">
                 <label className="kt-label">Befejezés</label>
-                <input type="time" className="kt-input" {...register('ido_befejezes')} />
+                <input type="time" className={`kt-input${errors.ido_befejezes ? ' is-err' : ''}`} {...register('ido_befejezes')} />
+                {/* 2026-09-05 (cal-ux-16): a zod idő-sorrend hibájának van kirajzolt helye. */}
+                {errors.ido_befejezes && <p className="kt-err">{errors.ido_befejezes.message}</p>}
               </div>
             </div>
           )}
@@ -474,8 +596,10 @@ export function ProgramDialog({ open, onOpenChange, editProgram, defaultDate }: 
             <label className="kt-label"><MapPin size={12} style={{ display: 'inline', verticalAlign: '-1px', marginRight: 4 }} />Helyszín</label>
             <input className="kt-input" placeholder="Pl. Templom" {...register('helyszin')} />
           </div>
+          </div>
 
-          {/* Prioritás (szegmentált) */}
+          {/* Prioritás (szegmentált) — szabadságnál rejtve (D2) */}
+          {!szabadsag && (
           <div className="kt-field">
             <label className="kt-label">Prioritás</label>
             <div className="kt-segmented">
@@ -494,6 +618,7 @@ export function ProgramDialog({ open, onOpenChange, editProgram, defaultDate }: 
               })}
             </div>
           </div>
+          )}
 
           {/* Ismétlődés (szegmentált) */}
           <div className="kt-field">
@@ -520,7 +645,15 @@ export function ProgramDialog({ open, onOpenChange, editProgram, defaultDate }: 
           {ismetlodes ? (
             <div className="kt-field">
               <label className="kt-label">Ismétlődés vége (utolsó alkalom napja)</label>
-              <input type="date" className="kt-input" {...register('ismetlodes_vege')} />
+              <input
+                type="date"
+                className={`kt-input${errors.ismetlodes_vege ? ' is-err' : ''}`}
+                min={datum || undefined}
+                {...register('ismetlodes_vege')}
+              />
+              {/* 2026-09-05 (cal-ux-4): a sorozat vége nem lehet az első alkalom előtt —
+                  a zod-hiba itt, a mező alatt jelenik meg (eddig csak a toast mondta). */}
+              {errors.ismetlodes_vege && <p className="kt-err">{errors.ismetlodes_vege.message}</p>}
               <p className="kt-modal-sub">Üresen hagyva a sorozat a megjelenített év végéig fut.</p>
             </div>
           ) : null}
@@ -532,16 +665,35 @@ export function ProgramDialog({ open, onOpenChange, editProgram, defaultDate }: 
               tágítja azt, ami nyilvánossá válik, a kapcsoló alatt ki is írjuk
               — a felhasználó ne utólag, a weboldalon szembesüljön vele. */}
           <div className="kt-field">
-            <label className="kt-switch" title="Bekapcsolva az esemény megjelenik a gyülekezet nyilvános weboldalán és letölthető naptárában.">
-              <input type="checkbox" {...register('publikus')} />
+            {/* 2026-09-05: MAGÁN típusnál (szabadság, tervezett anyakönyvi alkalom) a
+                kapcsoló LETILTVA — a mentés és a DB-trigger amúgy is kikapcsolná, a
+                felület pedig mondja is, miért (személyes adat nem megy a weboldalra). */}
+            <label
+              className={`kt-switch${magan ? ' is-disabled' : ''}`}
+              title={magan
+                ? 'Magán típus — sosem kerül a weboldalra és a naptárfájlba.'
+                : 'Bekapcsolva az esemény megjelenik a gyülekezet nyilvános weboldalán és letölthető naptárában.'}
+            >
+              <input type="checkbox" {...register('publikus')} disabled={magan} />
               <span className="kt-switch-track"><span className="kt-switch-thumb" /></span>
               Megjelenhet a gyülekezet weboldalán
             </label>
+            {magan ? (
+              <p className="kt-modal-sub kt-hint-magan">
+                <Lock size={12} />
+                <span>
+                  <strong>Magán típus.</strong> A keresztelő, esküvő, konfirmáció, temetés és a szabadság
+                  <strong> soha</strong> nem kerül a gyülekezet weboldalára és a letölthető naptárfájlba
+                  (személyes adat) — a rendszer akkor sem tenné ki, ha be lenne kapcsolva.
+                </span>
+              </p>
+            ) : (
             <p className="kt-modal-sub">
               Kikerül: a <strong>cím, időpont, helyszín</strong> és a lenti <strong>leírás</strong> —
               a kezdőlap „Következő alkalom" kártyájára, az Alkalmaink oldal éves naptárába
               és a letölthető naptárfájlba. A <strong>megjegyzés</strong> soha nem kerül ki.
             </p>
+            )}
 
             {/* ⚠️ A MÁSIK KAPCSOLÓ. Csak akkor szólunk, ha BIZTOSAN tudjuk,
                 hogy zárva van — hamis riasztás rosszabb a hallgatásnál. */}
@@ -569,6 +721,7 @@ export function ProgramDialog({ open, onOpenChange, editProgram, defaultDate }: 
               volt hozzá mező (csak `megjegyzes`, ami viszont belső marad).
               Endre „leírással együtt" kérése így némán üres maradt volna: azt a
               mezőt publikáltuk, amit senki nem tudott kitölteni. */}
+          {!magan && (
           <div className="kt-field">
             <label className="kt-label" htmlFor="program-leiras">
               Leírás {publikusBe ? '— megjelenik a weboldalon' : '(a weboldalra szánt ismertető)'}
@@ -585,6 +738,7 @@ export function ProgramDialog({ open, onOpenChange, editProgram, defaultDate }: 
                 : 'A weboldalra szánt ismertető. Csak akkor kerül ki, ha a fenti kapcsoló be van kapcsolva.'}
             </p>
           </div>
+          )}
 
           {/* Imahét — napi vendéglelkész-beosztás (2026-08-25) */}
           {imahetNapok.length > 0 && (
@@ -629,11 +783,15 @@ export function ProgramDialog({ open, onOpenChange, editProgram, defaultDate }: 
 
           {/* Megjegyzés — BELSŐ. A weboldalra SOHA nem kerül ki. */}
           <div className="kt-field">
-            <label className="kt-label" htmlFor="program-megjegyzes">Megjegyzés (belső)</label>
+            <label className="kt-label" htmlFor="program-megjegyzes">
+              {szabadsag ? 'Helyettes és megjegyzés (belső)' : 'Megjegyzés (belső)'}
+            </label>
             <textarea
               id="program-megjegyzes"
               className="kt-input kt-textarea"
-              placeholder="Csak nektek szóló jegyzet…"
+              placeholder={szabadsag
+                ? 'Helyettes: … (név, telefonszám) — ki látja el a sürgős szolgálatokat'
+                : 'Csak nektek szóló jegyzet…'}
               {...register('megjegyzes')}
             />
             <p className="kt-modal-sub">Belső jegyzet — a weboldalra és a naptárfájlba SOHA nem kerül ki.</p>

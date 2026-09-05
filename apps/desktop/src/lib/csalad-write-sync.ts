@@ -25,6 +25,8 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 
 import { getDesktopSupabase } from './supabase'
 import { getTauriSqliteBackend } from './tauri-sqlite-backend'
+import { getVerifiedSession } from './verified-session'
+import { FutoOr, withSyncTimeout } from './write-sync-registry'
 
 const MAX_ATTEMPTS = 5
 
@@ -57,10 +59,11 @@ export async function pushPendingCsalad(
     errors: [],
   }
 
-  try {
-    const sessionRes = await supabase.auth.getSession()
-    if (!sessionRes.data.session) return result
-  } catch {
+  // 2026-09-05: a repó közös őre (`getVerifiedSession`) — lejárat + FIÓK-
+  // EGYEZŐSÉG (a csupasz getSession más fiókkal is felküldte volna a sort).
+  const verified = await getVerifiedSession()
+  if (!verified.ok) {
+    if (verified.reason === 'user-mismatch') result.errors.push(verified.message)
     return result
   }
 
@@ -221,11 +224,14 @@ function pushErrorDedup(list: string[], msg: string): void {
 // Auto-trigger háttér-pusher
 // ─────────────────────────────────────────────────────────────────────────
 
-let pusherInterval: ReturnType<typeof setInterval> | null = null
-let onlineListenerAttached = false
 let lastRunAt: string | null = null
-let inFlight = false
 let lastResult: CsaladPushResult | null = null
+/**
+ * A futó push őre — a TÉNYLEGES befejezésig tart, nem az időkorlátig (bíráló
+ * P1, 2026-09-05): a csalad-insertnek semmilyen dup-védelme nincs, két
+ * párhuzamos kör ugyanazt a családot kétszer hozta volna létre. Ld. `FutoOr`.
+ */
+const futoOr = new FutoOr<CsaladPushResult>()
 
 export interface CsaladSyncStatus {
   running: boolean
@@ -234,61 +240,52 @@ export interface CsaladSyncStatus {
 }
 
 export function getCsaladSyncStatus(): CsaladSyncStatus {
-  return { running: inFlight, lastRunAt, lastResult }
+  return { running: futoOr.fut, lastRunAt, lastResult }
 }
 
-async function runOnceGuarded(): Promise<void> {
-  if (inFlight) return
+/** Egy push indítása — vagy a már futó megosztása. Az eredmény-cache a VALÓDI végén frissül. */
+function inditPush(ignoreBackoff: boolean): Promise<CsaladPushResult> {
+  return futoOr.futtat(
+    () => pushPendingCsalad(getDesktopSupabase(), ignoreBackoff),
+    (r) => {
+      lastResult = r
+      lastRunAt = new Date().toISOString()
+    },
+  )
+}
+
+/**
+ * Egy őrzött kör: saját visszalépéssel, 30 mp-es időkorláttal. Sosem dob.
+ * 2026-09-05: EXPORTÁLT — a `write-sync-registry` pollja hívja (nem az
+ * oldal mountjától függ többé — desk-sync-2); a saját listener kikerült.
+ */
+export async function runCsaladSyncGuarded(): Promise<void> {
+  if (futoOr.fut) return
   if (typeof navigator !== 'undefined' && !navigator.onLine) return
-  inFlight = true
   try {
-    lastResult = await pushPendingCsalad()
-    lastRunAt = new Date().toISOString()
-  } finally {
-    inFlight = false
+    await withSyncTimeout(inditPush(false), 'Család-szinkron')
+  } catch (err) {
+    // Időtúllépés VAGY hiba: a push a háttérben az őr alatt fut tovább —
+    // a következő kör NEM indít újat.
+    const msg = err instanceof Error ? err.message : String(err)
+    console.warn('[csalad-write-sync] a háttér-kör hibára futott:', msg)
+    lastResult = { attempted: 0, succeeded: 0, retrying: 0, conflicts: 0, errors: [msg] }
   }
 }
 
+/**
+ * Kompatibilitási belépő (families-page): egyetlen azonnali őrzött kör.
+ * A triggerkészlet a `write-sync-registry`-ben él.
+ */
 export function startCsaladAutoSync(): void {
   if (typeof window === 'undefined') return
-
-  if (!onlineListenerAttached) {
-    window.addEventListener('online', () => {
-      void runOnceGuarded()
-    })
-    onlineListenerAttached = true
-  }
-
-  if (!pusherInterval) {
-    pusherInterval = setInterval(() => {
-      void runOnceGuarded()
-    }, 30_000)
-  }
-
-  void runOnceGuarded()
+  void runCsaladSyncGuarded()
 }
 
+/**
+ * Manuális push (a visszalépést ignorálja). Ha már fut egy kör (időtúllépés
+ * után is), NEM indít újat — ugyanazt várja meg, időkorláttal.
+ */
 export async function runCsaladSyncManually(): Promise<CsaladPushResult> {
-  if (inFlight) {
-    while (inFlight) {
-      await new Promise((r) => setTimeout(r, 100))
-    }
-    return (
-      lastResult ?? {
-        attempted: 0,
-        succeeded: 0,
-        retrying: 0,
-        conflicts: 0,
-        errors: [],
-      }
-    )
-  }
-  inFlight = true
-  try {
-    lastResult = await pushPendingCsalad(getDesktopSupabase(), true)
-    lastRunAt = new Date().toISOString()
-    return lastResult
-  } finally {
-    inFlight = false
-  }
+  return withSyncTimeout(inditPush(true), 'Család-szinkron')
 }

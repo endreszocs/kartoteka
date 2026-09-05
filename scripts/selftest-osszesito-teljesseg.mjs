@@ -77,8 +77,13 @@ function ellenoriz(files) {
   if (!/pullFinanceOfOwnCongregation/.test(o) || !/pullBefizetesek/.test(o) || !/pullFinanceSettings/.test(o)) {
     hibak.push('P3-7: a full-bundle nem pull-olja a pénzügyi tükröt (befizetes/kiadas/bealitas)')
   }
+  // 2026-09-05: a függvény törzsét a ZÁRÓ kapcsos zárójelig nézzük, nem egy
+  // rögzített 1200 karakteres ablakban — a bundle azóta jelentés-alapú
+  // (futtatPull + hangos pénzügyi ág), a hívás az ablakon kívülre csúszott,
+  // és az őr HAMISAN bukott, miközben a bekötés élt.
   const iBundle = o.indexOf('async function syncFullBundle')
-  const bundleFn = iBundle >= 0 ? o.slice(iBundle, iBundle + 1200) : ''
+  const iBundleVege = iBundle >= 0 ? o.indexOf('\n}\n', iBundle) : -1
+  const bundleFn = iBundle >= 0 ? o.slice(iBundle, iBundleVege > iBundle ? iBundleVege : iBundle + 1200) : ''
   if (!/pullFinanceOfOwnCongregation\(userId\)/.test(bundleFn)) {
     hibak.push('P3-7: a pullFinanceOfOwnCongregation nincs bekötve a syncFullBundle-be')
   }
@@ -131,7 +136,11 @@ if (hibak.length === 0) {
   // M3: a pénzügyi pull kivétele a bundle-ből
   const m3 = beolvas()
   const o3 = m3.get(ORCH)
-  const o3mut = o3.replace(/\s*pullFinanceOfOwnCongregation\(userId\),/, '')
+  // 2026-09-05: a bundle jelentés-alapú lett — a pénzügyi ág `.catch(`-csel
+  // hangos; a mutáns MINDKÉT alakot (régi vessző / új .catch) ki tudja ütni.
+  const o3mut = o3
+    .replace(/\s*pullFinanceOfOwnCongregation\(userId\),/, '')
+    .replace(/pullFinanceOfOwnCongregation\(userId\)\.catch\(/, 'Promise.resolve([] as PullJelentes[]).catch(')
   m3.set(ORCH, o3mut)
   if (o3mut === o3) bukik('M3 mutáció nem változtatott (fail-closed)')
   else if (ellenoriz(m3).length === 0) bukik('M3: a pénzügyi pull kivételére NEM bukik — vak')

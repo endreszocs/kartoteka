@@ -40,7 +40,9 @@ import { NotificationBellRefined } from './notification-bell-refined'
 import { OfflineMenuItemBadge } from '@/components/offline/offline-menu-item-badge'
 import { SyncStatusButton } from '@/components/offline/sync-status-button'
 import { ProfileSwitcher, SWITCHER_PANEL_WIDTH, switcherInitialColumns } from './profile-switcher'
-import { ROLE_LABELS, type ProfileRoleRow } from '@/lib/profile-roles/types'
+import type { ProfileRoleRow } from '@/lib/profile-roles/types'
+import { getRoleLabel } from '@/lib/profile-roles/labels'
+import { getInitials } from '@/lib/utils/name'
 
 interface HeaderProps {
   profile: Profile
@@ -125,36 +127,14 @@ const NEUTRAL_FOCUS =
   'focus:bg-secondary focus:text-foreground not-data-[variant=destructive]:focus:**:text-inherit'
 
 /**
- * A `profiles.role` LEGACY kulcsai, amelyek NINCSENEK a kanonikus ROLE_LABELS-ben.
- * (Ezek régi/technikai értékek, nem `ProfileRoleType`-ok.)
+ * Szerep-címke: 2026-09-05 (profil-kör D1/D7) óta a projekt EGYETLEN
+ * címke-modulja adja (`lib/profile-roles/labels.ts` — kanonikus + legacy
+ * kulcsok), és a felirat forrása az AKTÍV profile_roles sor, nem a legacy
+ * `profiles.role` skalár. A felmérés (ui-3/data-2): a fejléc „Rendszergazda"-t
+ * írt, miközben a tulajdonos a gyülekezeti (lelkészi) profiljában dolgozott —
+ * a bal chip és a profil-dialógus mostantól ugyanazt mondja, mint ez a sor.
+ * (A 2026-08-22-es javítás — `admin` ≠ kerületi admin — a közös modulban él tovább.)
  */
-const LEGACY_ROLE_LABELS: Record<string, string> = {
-  master_admin: 'Főadmin',
-  pastor: 'Lelkipásztor',
-  user: 'Felhasználó',
-}
-
-/**
- * A fejléc szerep-címkéje.
- *
- * ⚠️ 2026-08-22 (4/F) HIBAJAVÍTÁS: itt `admin: 'Kerületi admin'` állt — ez
- * HELYTELEN. Az `admin` kulcs a RENDSZERGAZDA; a kerületi admin kulcsa
- * `egyhazkeruleti_admin`. A rendszergazda tehát a SAJÁT fejlécében kerületi
- * adminnak látta magát. Ráadásul a kézi térképből hiányzott a könyvelő, a két
- * számvevő és a megyei admin, így azok nyers, aláhúzásos kulcsként jelentek meg
- * (`egyhazmegyei szamvevo`).
- *
- * A címkék MOSTANTÓL a projekt EGYETLEN kanonikus térképéből jönnek
- * (`lib/profile-roles/types.ts` → ROLE_LABELS) — nincs többé párhuzamos lista,
- * amit el lehet felejteni frissíteni.
- */
-function getRoleLabel(role: string) {
-  return (
-    (ROLE_LABELS as Record<string, string>)[role] ||
-    LEGACY_ROLE_LABELS[role] ||
-    role.replace(/_/g, ' ')
-  )
-}
 
 // 2026-08-11 — hidratálás-érzékelés `useSyncExternalStore`-ral (lásd lentebb).
 // Modul szintű konstansok, hogy a hook ne kapjon minden renderben új függvényt.
@@ -183,7 +163,6 @@ export function HeaderRefinedV3({
   onOpenDistrictSetup,
   onOpenGodMode,
   onToggleMobileMenu,
-  onToggleSidebar,
 }: HeaderProps) {
   const hasMultipleRoles = profileRoles.length > 1
   const [signingOut, setSigningOut] = useState(false)
@@ -206,13 +185,12 @@ export function HeaderRefinedV3({
   const isDark = mounted && resolvedTheme === 'dark'
 
   const fullName = profile.full_name || profile.email || 'Lelkipásztor'
-  const initials = fullName
-    .split(' ')
-    .map((name) => name[0])
-    .join('')
-    .substring(0, 2)
-    .toUpperCase()
-  const roleLabel = getRoleLabel(profile.role)
+  const initials = getInitials(fullName, 'K')
+  // Az AKTÍV kontextus szerepe; ha nincs profile_roles sor, a legacy skalár.
+  const activeRoleRow = activeProfileRoleId ? profileRoles.find((r) => r.id === activeProfileRoleId) : undefined
+  const roleLabel = activeRoleRow
+    ? getRoleLabel(activeRoleRow.role, activeRoleRow.custom_label)
+    : getRoleLabel(profile.role)
 
   // Scope-tudatos chip-felirat (bal-felső sarok). Endre kérése (2026-05-03):
   // az admin felületen NE "Várakozás a jóváhagyásra" / "Erdélyi Református
@@ -416,9 +394,11 @@ export function HeaderRefinedV3({
                   {initials}
                 </AvatarFallback>
               </Avatar>
-              <div className="hidden text-left leading-tight sm:block">
-                <p className="text-[12.5px] font-semibold text-foreground">{fullName}</p>
-                <p className="text-[10.5px] text-muted-foreground">{roleLabel}</p>
+              {/* 2026-09-05: `min-w-0 max-w-[14rem] truncate` + `title` — a hosszú
+                  kettős név eddig a bal chipet nyomta össze, tooltip nélkül. */}
+              <div className="hidden min-w-0 max-w-[14rem] text-left leading-tight sm:block">
+                <p className="truncate text-[12.5px] font-semibold text-foreground" title={fullName}>{fullName}</p>
+                <p className="truncate text-[10.5px] text-muted-foreground" title={roleLabel}>{roleLabel}</p>
               </div>
               <ChevronDown className="hidden size-3.5 text-muted-foreground transition group-data-[popup-open]/avatar:rotate-180 sm:block" />
             </DropdownMenuTrigger>
@@ -465,7 +445,7 @@ export function HeaderRefinedV3({
                       <MegaItem
                         icon={User}
                         label="Profil"
-                        hint="Adatok, fotó, jelszó"
+                        hint="Adatok, fotó, szolgálati háttér"
                         onClick={onOpenProfile}
                       />
                       <MegaItem
@@ -695,14 +675,16 @@ function IdentityPanel({
         </Avatar>
 
         <div className="min-w-0">
-          <p className="truncate font-heading text-[16px] font-semibold text-white lg:text-[18px]">
+          {/* 2026-09-05: a név két sorra törhet (`line-clamp-2`), a szerep tördelődik;
+              mindhárom kap `title`-t — a 216 px-es sáv eddig tooltip nélkül vágott. */}
+          <p className="line-clamp-2 break-words font-heading text-[16px] font-semibold leading-tight text-white lg:text-[18px]" title={fullName}>
             {fullName}
           </p>
-          <p className="truncate text-[12px] text-white/75">{roleLabel}</p>
+          <p className="break-words text-[12px] text-white/75" title={roleLabel}>{roleLabel}</p>
         </div>
       </div>
 
-      {email && <p className="mt-2 hidden truncate text-[11.5px] text-white/60 lg:block">{email}</p>}
+      {email && <p className="mt-2 hidden truncate text-[11.5px] text-white/60 lg:block" title={email}>{email}</p>}
 
       {hasMultipleRoles && (
         <div className="mt-3 hidden items-center gap-1.5 rounded-lg bg-white/12 px-2.5 py-1.5 backdrop-blur-sm lg:flex">

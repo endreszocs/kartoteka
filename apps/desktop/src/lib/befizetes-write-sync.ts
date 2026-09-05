@@ -29,6 +29,7 @@ import { dbSelect } from './local-db'
 import { getDesktopSupabase } from './supabase'
 import { getTauriSqliteBackend } from './tauri-sqlite-backend'
 import { getVerifiedSession } from './verified-session'
+import { FutoOr, withSyncTimeout } from './write-sync-registry'
 
 const MAX_ATTEMPTS = 5
 
@@ -175,7 +176,8 @@ export async function pushPendingBefizetes(
 
   let mutations: Awaited<ReturnType<typeof backend.getPendingMutations>>
   try {
-    mutations = await backend.getPendingMutations(50)
+    // desk-sync-8: tábla-szűrő az SQL-ben — az 50-es ablak ne éheztesse ki ezt a sort.
+    mutations = await backend.getPendingMutations(50, 'befizetes')
   } catch (err) {
     result.errors.push(
       `Outbox olvasási hiba: ${err instanceof Error ? err.message : 'ismeretlen'}`,
@@ -465,11 +467,15 @@ function pushErrorDedup(list: string[], msg: string): void {
 //  Auto-trigger háttér-pusher
 // ─────────────────────────────────────────────────────────────────────────
 
-let pusherInterval: ReturnType<typeof setInterval> | null = null
-let onlineListenerAttached = false
 let lastRunAt: string | null = null
-let inFlight = false
 let lastResult: BefizetesPushResult | null = null
+/**
+ * A futó push őre — a TÉNYLEGES befejezésig tart, nem az időkorlátig (bíráló
+ * P1, 2026-09-05). A befizetést az xkey-kapu védi a duplától, de a
+ * párhuzamos második kör ugyanazokat a sorokat hiába küldte volna újra
+ * (hálózat + hamis konfliktus-jelölés). Ld. `FutoOr`.
+ */
+const futoOr = new FutoOr<BefizetesPushResult>()
 
 export interface BefizetesSyncStatus {
   running: boolean
@@ -479,73 +485,58 @@ export interface BefizetesSyncStatus {
 
 export function getBefizetesSyncStatus(): BefizetesSyncStatus {
   return {
-    running: inFlight,
+    running: futoOr.fut,
     lastRunAt,
     lastResult,
   }
 }
 
-async function runOnceGuarded(): Promise<void> {
-  if (inFlight) return
+/** Egy push indítása — vagy a már futó megosztása. Az eredmény-cache a VALÓDI végén frissül. */
+function inditPush(ignoreBackoff: boolean): Promise<BefizetesPushResult> {
+  return futoOr.futtat(
+    () => pushPendingBefizetes(getDesktopSupabase(), ignoreBackoff),
+    (r) => {
+      lastResult = r
+      lastRunAt = new Date().toISOString()
+    },
+  )
+}
+
+/**
+ * Egy őrzött kör: saját visszalépéssel, 30 mp-es időkorláttal. Sosem dob.
+ * 2026-09-05: EXPORTÁLT — a `write-sync-registry` pollja hívja; a saját
+ * `online` listener + interval innen kikerült (egy triggerkészlet).
+ */
+export async function runBefizetesSyncGuarded(): Promise<void> {
+  if (futoOr.fut) return
   if (typeof navigator !== 'undefined' && !navigator.onLine) return
-  inFlight = true
   try {
-    lastResult = await pushPendingBefizetes()
-    lastRunAt = new Date().toISOString()
-  } finally {
-    inFlight = false
+    await withSyncTimeout(inditPush(false), 'Befizetés-szinkron')
+  } catch (err) {
+    // Időtúllépés VAGY hiba: a push a háttérben az őr alatt fut tovább —
+    // a következő kör NEM indít újat.
+    const msg = err instanceof Error ? err.message : String(err)
+    console.warn('[befizetes-write-sync] a háttér-kör hibára futott:', msg)
+    lastResult = { attempted: 0, succeeded: 0, retrying: 0, conflicts: 0, errors: [msg] }
   }
 }
 
 /**
- * Beállítja az auto-triggereket: online-event + 30s periodic poll.
- * Idempotens — többszöri hívás nem duplikálja a listener-t.
+ * Kompatibilitási belépő: egyetlen azonnali őrzött kör. A triggerkészlet a
+ * `write-sync-registry`-ben él — itt NINCS listener és NINCS interval.
  */
 export function startBefizetesAutoSync(): void {
   if (typeof window === 'undefined') return
-
-  if (!onlineListenerAttached) {
-    window.addEventListener('online', () => {
-      void runOnceGuarded()
-    })
-    onlineListenerAttached = true
-  }
-
-  if (!pusherInterval) {
-    pusherInterval = setInterval(() => {
-      void runOnceGuarded()
-    }, 30_000)
-  }
-
-  void runOnceGuarded()
+  void runBefizetesSyncGuarded()
 }
 
 /**
  * Manuális push-kiváltás. Ignorálja az exp-backoff-ot (a user explicit kéri).
+ * Ha már fut egy kör (időtúllépés után is), NEM indít újat — ugyanazt várja
+ * meg, időkorláttal.
  */
 export async function runBefizetesSyncManually(): Promise<BefizetesPushResult> {
-  if (inFlight) {
-    while (inFlight) {
-      await new Promise((r) => setTimeout(r, 100))
-    }
-    return (
-      lastResult ?? {
-        attempted: 0,
-        succeeded: 0,
-        retrying: 0,
-        conflicts: 0,
-        errors: [],
-      }
-    )
-  }
-  inFlight = true
-  try {
-    lastResult = await pushPendingBefizetes(getDesktopSupabase(), true)
-    lastRunAt = new Date().toISOString()
-    return lastResult
-  } finally {
-    inFlight = false
-  }
+  return withSyncTimeout(inditPush(true), 'Befizetés-szinkron')
 }
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -666,7 +657,10 @@ export async function resolveBefizetesConflict(
     })
 
     // 6) Trigger sync (a háttérben)
-    void runBefizetesSyncManually()
+    //    Az időtúllépés / hiba nem néma (konzol), de a hívót nem buktatja el.
+    runBefizetesSyncManually().catch((err: unknown) => {
+      console.warn('[befizetes-write-sync] a mentés utáni háttér-push jelzett:', err instanceof Error ? err.message : String(err))
+    })
 
     return { success: true, action: 'reassign', newSzam: claim.szam }
   } catch (err) {

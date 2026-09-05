@@ -8,6 +8,7 @@ import { ymd, eventsForDay } from '@/lib/utils/program-day'
 // 2026-08-26 (5. kör): a képernyő-naptár eddig SEMMILYEN ünnepet nem mutatott
 // (csak a nyomtatás és az ICS) — a kanonikus ünneplistából jelezzük őket.
 import { getUnnepnapTerkep } from '@/lib/utils/reformed-holidays'
+import type { RetegPotty } from '@/lib/calendar/naptar-retegek-osszefesules'
 
 interface ProgramCalendarProps {
   /** A betöltött év (ismétlődés-feloldott) programjai. */
@@ -23,13 +24,22 @@ interface ProgramCalendarProps {
    * se ugráljon, és a három csempe egy magasságú maradjon.
    */
   compact?: boolean
+  /**
+   * 2026-09-05: a naptár-RÉTEGEK pöttyei naponként (anyakönyvi tény, születésnap,
+   * névnap) — a `retegPottyokNaponkent` tiszta függvény adja, a kapcsolók és a
+   * dedupe már érvényesítve. Hiányzó térkép = csak a programok.
+   */
+  retegPottyok?: Map<string, RetegPotty[]> | null
 }
 
 /** Egy teljes hónapnézet 6 hét × 7 nap = 42 cellából áll. */
 const COMPACT_CELLS = 42
 
+/** Egy pötty a cellában — a program a típus színét kapja, a réteg CSS-osztályt (téma-token). */
+type Potty = { szin: string | null; osztaly: string; cim: string }
+
 export function ProgramCalendar({
-  programs, month, year, today, selectedDay, onSelectDay, compact = false,
+  programs, month, year, today, selectedDay, onSelectDay, compact = false, retegPottyok,
 }: ProgramCalendarProps) {
   const daysInMonth = new Date(year, month + 1, 0).getDate()
   let startDow = new Date(year, month, 1).getDay() - 1 // hétfő-kezdés
@@ -54,13 +64,18 @@ export function ProgramCalendar({
     const isPast = dateStr < todayStr
     const isSunday = new Date(year, month, d).getDay() === 0
     const evts = eventsForDay(programs, year, month, d)
-    const has = evts.length > 0
+    const retegek = retegPottyok?.get(dateStr) ?? []
     const selected = selectedDay === d
     const unnepNev = unnepek.get(dateStr) || null
 
-    const colors: string[] = []
-    for (const e of evts) { if (colors.length < maxDots) colors.push(progColor(e)) }
-    const extra = evts.length - colors.length
+    // A pöttyök sorrendje: programok, majd a rétegek (anyakönyv → születésnap → névnap).
+    const osszes: Potty[] = [
+      ...evts.map((e) => ({ szin: progColor(e), osztaly: '', cim: e.cim })),
+      ...retegek.map((r) => ({ szin: r.szin, osztaly: ` kt-cal-dot--${r.reteg}`, cim: r.cim })),
+    ]
+    const has = osszes.length > 0
+    const lathato = osszes.slice(0, maxDots)
+    const extra = osszes.length - lathato.length
 
     let cls = 'kt-cal-day'
     if (selected) cls += ' is-selected'
@@ -69,7 +84,14 @@ export function ProgramCalendar({
     if (isPast && !isToday) cls += ' is-past'
     if (has) cls += ' has-events'
 
-    const cimResz = [unnepNev ? `✝ ${unnepNev}` : null, has ? `${evts.length} program` : null]
+    const retegSzoveg = retegek.length > 0
+      ? `${retegek.length} köszöntő/anyakönyvi esemény`
+      : null
+    const cimResz = [
+      unnepNev ? `✝ ${unnepNev}` : null,
+      evts.length > 0 ? `${evts.length} program` : null,
+      retegSzoveg,
+    ]
       .filter(Boolean)
       .join(' — ')
 
@@ -81,7 +103,7 @@ export function ProgramCalendar({
         onClick={() => onSelectDay(d)}
         title={`${HU_MONTHS[month]} ${d}.${cimResz ? ` — ${cimResz}` : ''}`}
         aria-pressed={selected}
-        aria-label={`${HU_MONTHS[month]} ${d}.${unnepNev ? `, ${unnepNev}` : ''}${has ? `, ${evts.length} program` : ''}`}
+        aria-label={`${HU_MONTHS[month]} ${d}.${unnepNev ? `, ${unnepNev}` : ''}${evts.length > 0 ? `, ${evts.length} program` : ''}${retegSzoveg ? `, ${retegSzoveg}` : ''}`}
       >
         <span className="kt-cal-num" style={unnepNev ? { color: '#b45309', fontWeight: 700 } : undefined}>
           {d}
@@ -89,8 +111,9 @@ export function ProgramCalendar({
         </span>
         {has && (
           <span className="kt-cal-dots">
-            {colors.map((c, i) => (
-              <span key={i} className="kt-cal-dot" style={{ background: c }} />
+            {lathato.map((p, i) => (
+              // A kulcs a pozíció (a pöttyök sorrendje determinisztikus, tartalom nélküli jel)
+              <span key={i} className={`kt-cal-dot${p.osztaly}`} style={p.szin ? { background: p.szin } : undefined} />
             ))}
             {extra > 0 && <span className="kt-cal-more">+{extra}</span>}
           </span>

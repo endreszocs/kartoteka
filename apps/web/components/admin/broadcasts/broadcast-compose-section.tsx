@@ -87,6 +87,10 @@ export function BroadcastComposeSection({
         return
       }
       toast.success(`Üzenet elküldve ${result.recipientCount} címzettnek.`)
+      // 2026-09-05: a körlevél rögzülhet úgy, hogy a csengő-értesítések
+      // beszúrása elhal — a szerver ezt `warning`-ként adja vissza; néma
+      // lenyelése tilos (a rendszergazda azt hinné, mindenki megkapta).
+      if (result.warning) toast.warning(result.warning)
       resetForm()
       onSent()
     })

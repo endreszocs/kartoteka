@@ -19,6 +19,33 @@ A `[x]` kipipált bejegyzéseknek időbélyeg jár (mikor futott le). A `[ ]` pe
 
 ---
 
+## ✅ LEFUTOTT – asztali első indítás + naptár + értesítések + profil (2026-09-05)
+
+Mind a 4 fájl ebben a sorrendben futott le (Endre, 2026-09-05), az ellenőrző rácsok tiszták:
+
+- [x] 2026-09-05 — **`2026-09-05-desktop-kapcsolas.sql`** ✅ LEFUTOTT
+       Rács 8/8 ✅: tábla, RLS, 2 policy (own_select/own_delete), anon-nak nincs joga,
+       authenticated SELECT+DELETE igen / INSERT+UPDATE nem, mentés-besorolás `kizart_titok`,
+       takarító függvény, besorolatlan élő tábla NINCS.
+
+- [x] 2026-09-05 — **`2026-09-05-naptar-anyakonyv-szabadsag-nevnap.sql`** ✅ LEFUTOTT
+       Rács 15/15 ✅: az 5 új típus a CHECK-ben (a régi 16 megmaradt), anyakönyvi link-oszlopok +
+       részleges egyedi index, magán-típus trigger, 0 publikus magán program, public_site_events
+       V1/V2 + public_calendar_feed kizár, `naptar_nev_kulcs` próba („Özv. Kovács-Nagy" →
+       „ozv.kovacsnagy"), `naptar_szemely_alap/nevnapok` (anon NEM, authenticated IGEN),
+       `lelkeszi_naptar_feed` V2 csak service_role, névnap-egyeztetés próba (Anna Mária → Anna).
+
+- [x] 2026-09-05 — **`2026-09-05-ertesitesek-felado.sql`** ✅ LEFUTOTT
+       Rács 10/10 ✅: feladó-oszlopok + CHECK, levezető függvény + INSERT-trigger, 0 feladó
+       nélküli sor, eloszlás: rendszergazda=76 · rendszer=12 · felhasznalo=1; index; írásvédelmi
+       UPDATE-trigger; 64 hírlevél-sor markdown; mentés: `globalis_predikatum` az ertesitesek-en.
+
+- [x] 2026-09-05 — **`2026-09-05-profil-pontossag.sql`** ✅ LEFUTOTT
+       Rács ✅: `avatar_source` oszlop + CHECK, logos saját profilkép-mappa policy-k, 2 szolgálati
+       előzmény-sor átemelve (0 maradt strukturált sor nélkül), 0 „sürgősségi telefon = saját
+       telefon". Tájékoztató: 2 profilnál `profiles.email ≠ auth.users.email` (a felület ⚠️-t
+       mutat), 0 diocese-eltérés, 6 avatar_url / 6 picture / 0 explicit avatar-döntés.
+
 ---
 
 ## ✅ LEFUTOTT – pénzügy-átvilágítás (2026-08-27 / 2026-08-28)

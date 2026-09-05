@@ -408,7 +408,14 @@ export function RegistryTabs({ congregationName, showAdminImport = false, adminI
     if (!confirm('Biztosan törli ezt a bejegyzést? A törlés végleges.')) return
     const result = await deleteRegistryEntry(activeTab, id)
     if (result.error) toast.error(result.error)
-    else { toast.success('Bejegyzés törölve.'); refreshData(activeTab) }
+    else {
+      toast.success('Bejegyzés törölve.')
+      // 2026-09-05: a naptár-program anyakönyvi kapcsolatának bontása külön
+      // lépés — ha az nem sikerült, a lelkész lássa (nem néma).
+      const figyelmeztetes = (result as { warning?: string | null }).warning
+      if (figyelmeztetes) toast.warning(figyelmeztetes)
+      refreshData(activeTab)
+    }
   }
 
   function closeAndRefresh(open: boolean) {

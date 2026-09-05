@@ -75,7 +75,7 @@ export function DefaultDashboardSelector({
   if (loading) {
     return (
       <Card>
-        <CardContent className="p-5 text-sm text-slate-400">Beállítás betöltése…</CardContent>
+        <CardContent className="p-5 text-sm text-muted-foreground">Beállítás betöltése…</CardContent>
       </Card>
     )
   }
@@ -84,10 +84,10 @@ export function DefaultDashboardSelector({
     <Card>
       <CardContent className="p-5">
         <div className="flex items-center gap-2 mb-3">
-          <Compass className="size-5 text-violet-600" />
-          <p className="text-sm font-semibold text-slate-800">Alapértelmezett kezdőfelület</p>
+          <Compass className="size-5 text-primary" />
+          <p className="text-sm font-semibold text-foreground">Alapértelmezett kezdőfelület</p>
         </div>
-        <p className="text-xs text-slate-500 mb-3">
+        <p className="text-xs text-muted-foreground mb-3">
           Ha több szerepköröd van (pl. gyülekezeti lelkész és esperes is), akkor választhatsz,
           hogy bejelentkezéskor melyik dashboard nyíljon meg.
         </p>
@@ -97,10 +97,10 @@ export function DefaultDashboardSelector({
             return (
               <label
                 key={o.value}
-                className={`flex items-start gap-3 rounded-xl border-2 px-3 py-2 cursor-pointer transition ${
+                className={`flex items-start gap-3 min-h-11 rounded-xl border-2 px-3 py-2 cursor-pointer transition ${
                   isActive
-                    ? 'border-violet-400 bg-violet-50'
-                    : 'border-slate-200 hover:border-slate-300 bg-white'
+                    ? 'border-primary bg-primary/10'
+                    : 'border-border hover:border-primary/40 bg-card'
                 } ${isPending ? 'opacity-60 pointer-events-none' : ''}`}
               >
                 <input
@@ -112,10 +112,10 @@ export function DefaultDashboardSelector({
                   className="mt-1"
                 />
                 <div className="flex-1">
-                  <p className="text-sm font-medium text-slate-800">{o.label}</p>
-                  <p className="text-xs text-slate-500 mt-0.5">{o.description}</p>
+                  <p className="text-sm font-medium text-foreground">{o.label}</p>
+                  <p className="text-xs text-muted-foreground mt-0.5">{o.description}</p>
                 </div>
-                {isActive && <CheckCircle2 className="size-4 text-violet-600 mt-1" />}
+                {isActive && <CheckCircle2 className="size-4 text-primary mt-1" />}
               </label>
             )
           })}

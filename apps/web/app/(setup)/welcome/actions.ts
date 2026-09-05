@@ -765,15 +765,17 @@ export async function completeWizard(): Promise<
     const pastorUpsert: Record<string, unknown> = {
       user_id: user.id,
     }
-    if (wd.pastor.phone) pastorUpsert.emergency_phone = wd.pastor.phone
+    // 2026-09-05 (profil-kör): a lelkész SAJÁT telefonja a `profiles.phone`-ba
+    // ment (fentebb) — az `emergency_phone` egy MÁSIK elérhető személy száma
+    // (a profil-dialógus is így címkézi), ide a saját számot írni téves adat
+    // volt, amit a 2026-09-05-profil-pontossag.sql takarít. A varázsló nem
+    // kérdez sürgősségi számot → a mező itt NEM íródik.
     if (wd.pastor.serviceStartedAt) {
       pastorUpsert.service_started_at = wd.pastor.serviceStartedAt
     }
-    // Backward-compat: ha a régi previousPlaces text mezőben van adat,
-    // azt is mentjük (de a strukturált pastor_service_history a fő tárolás).
-    if (wd.pastor.previousPlaces) {
-      pastorUpsert.previous_service_places = [wd.pastor.previousPlaces]
-    }
+    // A régi `previousPlaces` szöveg NEM a legacy `previous_service_places`
+    // tömbbe megy (második igazságforrás lett volna) — lentebb strukturált
+    // sorként kerül a kanonikus pastor_service_history-ba.
 
     const { error } = await writeClient
       .from('pastor_profiles')
@@ -787,8 +789,18 @@ export async function completeWizard(): Promise<
   // A wizard Step 3 új strukturált szolgálati előzményei. Először töröljük
   // a felhasználó saját history-ját (idempotens újrafutáshoz), aztán bulk
   // insertelünk.
-  if (Array.isArray(wd.serviceHistory)) {
-    const validHistory = wd.serviceHistory.filter(s => s.hely && s.hely.trim())
+  //
+  // 2026-09-05: a @deprecated `pastor.previousPlaces` szöveg (régi, félbehagyott
+  // wizard_progress-ből jöhet) strukturált sor NÉLKÜL egy „hely" sorrá alakul,
+  // hogy a kanonikus tárba kerüljön, ne a legacy tömbbe.
+  const orokoltHely = wd.pastor?.previousPlaces?.trim() || ''
+  const strukturalt = Array.isArray(wd.serviceHistory) ? wd.serviceHistory : []
+  const serviceHistoryForras =
+    strukturalt.some(s => s.hely && s.hely.trim()) || !orokoltHely
+      ? strukturalt
+      : [{ hely: orokoltHely, szerep: '', ev_tol: null, ev_ig: null, megjegyzes: 'A varázsló régi (szöveges) mezőjéből átemelve.' }]
+  if (serviceHistoryForras.length > 0) {
+    const validHistory = serviceHistoryForras.filter(s => s.hely && s.hely.trim())
     if (validHistory.length > 0) {
       // Töröljük a meglévő rekordokat (idempotens újrafutás esetén)
       await writeClient

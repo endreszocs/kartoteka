@@ -26,15 +26,40 @@ export const PROGRAM_TYPES = [
   'istentisztelet', 'bibliaora', 'imaora', 'ifjusagi', 'gyerekprogram',
   'konferencia', 'hangverseny', 'kozossegi', 'presbiteri', 'latogatas',
   'unnep', 'tabor', 'evangelizacio', 'diakoniai', 'noszovetseg', 'egyeb',
+  // 2026-09-05 (Endre 2. pontja): TERVEZETT anyakönyvi alkalmak + a lelkész
+  // szabadsága. A DB CHECK-et a 2026-09-05-naptar-anyakonyv-szabadsag-nevnap.sql
+  // bővíti ugyanezekre; a megtörtént tény továbbra is az anyakönyv sora.
+  'kereszteles', 'eskuvo', 'konfirmacio', 'temetes', 'szabadsag',
 ] as const
 
 export type ProgramTipus = typeof PROGRAM_TYPES[number]
+
+/**
+ * 2026-09-05: MAGÁN típusok — SOHA nem publikusak (a mentés kikapcsolja a
+ * `publikus` jelzőt, a DB-trigger is, és a nyilvános RPC-k a WHERE-ben
+ * kizárják). A szabadság a lelkész személyes ügye; az anyakönyvi típus címe
+ * személynevet hordozhat.
+ */
+export const MAGAN_PROGRAM_TIPUSOK = ['szabadsag', 'kereszteles', 'eskuvo', 'konfirmacio', 'temetes'] as const satisfies readonly ProgramTipus[]
+export type MaganProgramTipus = typeof MAGAN_PROGRAM_TIPUSOK[number]
+
+/** A tervezett anyakönyvi alkalom típusai — ezekhez köthető anyakönyvi bejegyzés. */
+export const ANYAKONYVI_PROGRAM_TIPUSOK = ['kereszteles', 'eskuvo', 'konfirmacio', 'temetes'] as const satisfies readonly ProgramTipus[]
+export type AnyakonyviProgramTipus = typeof ANYAKONYVI_PROGRAM_TIPUSOK[number]
+
+export function isMaganProgramTipus(t: string | null | undefined): t is MaganProgramTipus {
+  return (MAGAN_PROGRAM_TIPUSOK as readonly string[]).includes(t ?? '')
+}
+export function isAnyakonyviProgramTipus(t: string | null | undefined): t is AnyakonyviProgramTipus {
+  return (ANYAKONYVI_PROGRAM_TIPUSOK as readonly string[]).includes(t ?? '')
+}
 
 export const PROG_TIPUS_EMOJI: Record<ProgramTipus, string> = {
   istentisztelet: '⛪', bibliaora: '📖', imaora: '🙏', ifjusagi: '🎯',
   gyerekprogram: '🧒', konferencia: '🎤', hangverseny: '🎵', kozossegi: '🤝',
   presbiteri: '📋', latogatas: '🏠', unnep: '🎄', tabor: '⛺',
   evangelizacio: '📣', diakoniai: '❤️', noszovetseg: '🌸', egyeb: '📌',
+  kereszteles: '💧', eskuvo: '💍', konfirmacio: '✝️', temetes: '🕯️', szabadsag: '🌴',
 }
 
 export const PROG_TIPUS_LABELS: Record<ProgramTipus, string> = {
@@ -44,6 +69,8 @@ export const PROG_TIPUS_LABELS: Record<ProgramTipus, string> = {
   latogatas: 'Látogatás', unnep: 'Ünnep', tabor: 'Tábor',
   evangelizacio: 'Evangélizáció', diakoniai: 'Diakónia', noszovetseg: 'Nőszövetség',
   egyeb: 'Egyéb',
+  kereszteles: 'Keresztelő', eskuvo: 'Esküvő', konfirmacio: 'Konfirmáció',
+  temetes: 'Temetés', szabadsag: 'Szabadság',
 }
 
 export const PROG_TIPUS_COLOR: Record<ProgramTipus, string> = {
@@ -51,6 +78,10 @@ export const PROG_TIPUS_COLOR: Record<ProgramTipus, string> = {
   gyerekprogram: '#14b8a6', konferencia: '#ef4444', hangverseny: '#6366f1', kozossegi: '#10b981',
   presbiteri: '#6b7280', latogatas: '#f97316', unnep: '#eab308', tabor: '#22c55e',
   evangelizacio: '#d946ef', diakoniai: '#f43f5e', noszovetseg: '#ec4899', egyeb: '#94a3b8',
+  // 2026-09-05: anyakönyvi + szabadság — a naptár-rétegek (anyakonyv-retegek)
+  // ugyanezeket a színeket használják, hogy a tervezett és a megtörtént
+  // alkalom EGY színcsaládban legyen.
+  kereszteles: '#0ea5e9', eskuvo: '#e11d48', konfirmacio: '#7c3aed', temetes: '#475569', szabadsag: '#84cc16',
 }
 
 // ── Program prioritások ──────────────────────────────────────
@@ -130,6 +161,14 @@ export interface Program {
   leiras?: string | null
   /** BELSŐ jegyzet — SOHA nem hagyja el a rendszert. */
   megjegyzes: string | null
+  /**
+   * 2026-09-05: a TERVEZETT anyakönyvi alkalom (kereszteles/eskuvo/konfirmacio/
+   * temetes típus) kapcsolata a MEGTÖRTÉNT anyakönyvi sorral — együtt NULL vagy
+   * együtt kitöltött (DB CHECK). A naptár ilyenkor a programot „anyakönyvezve"
+   * jelzéssel mutatja, az anyakönyvi réteg nem duplázza.
+   */
+  anyakonyv_tabla?: 'keresztseg' | 'hazassag' | 'konfirmalas' | 'temetes' | null
+  anyakonyv_id?: number | null
   teljesitett: boolean
   teljesites_datum: string | null
   letrehozta_id: string | null

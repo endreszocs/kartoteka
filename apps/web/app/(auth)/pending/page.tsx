@@ -3,6 +3,10 @@ import { redirect } from 'next/navigation'
 import { PendingApprovalClient } from '@/components/auth/pending-approval-client'
 import { isKnownRole, isMasterAdmin } from '@/lib/auth/roles'
 import { createClient } from '@/lib/supabase/server'
+// 2026-09-05 (profil-kör D7): a keresztnév-kinyerő EGY helyen él — a helyi
+// másolat (Dr./Prof. előtag nélkül) „Dr. Kovács János"-ból „János" helyett
+// mást adott volna, mint a fejléc.
+import { extractFirstName } from '@/lib/utils/name'
 
 /**
  * /pending — várakozó képernyő két esetre:
@@ -62,15 +66,4 @@ export default async function PendingPage() {
       waitReason={waitReason}
     />
   )
-}
-
-function extractFirstName(fullName: string): string | null {
-  if (!fullName) return null
-  const parts = fullName
-    .trim()
-    .replace(/^(Nt\.|Ft\.|Főt\.|Rev\.|Pál\.)\s+/i, '')
-    .split(/\s+/)
-    .filter(Boolean)
-  if (parts.length === 0) return null
-  return parts[parts.length - 1]
 }

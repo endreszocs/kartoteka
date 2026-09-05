@@ -28,6 +28,8 @@ import {
 } from '@/lib/auth/admin-scope'
 import { canReadDioceseScope, resolveDioceseReadScopeIds } from '@/lib/auth/level-scope'
 import { logAuditEvent } from '@/lib/audit/log'
+import { feladoMezok } from '@/lib/notifications/felado'
+import { insertErtesites } from '@/lib/notifications/ertesites-insert'
 import { ROLE_TEMPLATES } from '@/lib/profile-roles/permissions'
 import type {
   ApprovalStatus,
@@ -488,19 +490,27 @@ export async function createProfileRole(
       const targetName = targetProfile?.full_name || targetProfile?.email || 'Egy felhasználó'
       const roleLabel = input.role === 'custom' ? input.customLabel : input.role
 
-      for (const p of pastors || []) {
-        if (!p.id) continue
-        await supabase.from('ertesitesek').insert({
-          user_id: p.id,
-          congregation_id: input.scopeId,
-          cim: `Új hozzáférési kérés: ${roleLabel}`,
-          uzenet: `${targetName} ${roleLabel} szerepkörrel szeretne hozzáférést kapni a gyülekezethez. A saját profilján tudja jóváhagyni vagy elutasítani.`,
-          tipus: 'info',
-          hivatkozas: '/profile/kapcsolatok',
-        })
+      const cimzettek = (pastors || []).map((p) => p.id).filter((id): id is string => !!id)
+      if (cimzettek.length > 0) {
+        // Egy hívás, minden címzettnek; a feladó a kérelmező felhasználó.
+        // A hibát a segéd naplózza — a szerepkör-sor már létrejött.
+        await insertErtesites(
+          supabase,
+          cimzettek.map((uid) => ({
+            user_id: uid,
+            congregation_id: input.scopeId,
+            cim: `Új hozzáférési kérés: ${roleLabel}`,
+            uzenet: `${targetName} ${roleLabel} szerepkörrel szeretne hozzáférést kapni a gyülekezethez. A saját profilján tudja jóváhagyni vagy elutasítani.`,
+            tipus: 'info',
+            hivatkozas: '/profile/kapcsolatok',
+            ...feladoMezok('felhasznalo', targetName, input.profileId),
+          })),
+          { forras: 'szerepkor-keres' },
+        )
       }
-    } catch {
-      // Csendes — a létrehozás már sikeres
+    } catch (e) {
+      // A létrehozás már sikeres — de a hallgatás tilos.
+      console.warn('[profile-roles] a lelkész-értesítés nem ment ki:', e instanceof Error ? e.message : e)
     }
   }
 

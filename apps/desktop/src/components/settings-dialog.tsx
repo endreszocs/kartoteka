@@ -2,10 +2,14 @@
  * Settings Dialog — desktop verzió.
  *
  * A web `apps/web/components/modals/settings-dialog.tsx` (5 tab: Értesítések,
- * Megjelenés, Nyelv, Publikus oldal, Adat & biztonság) portja. A `Adat &
- * biztonság` tab tartalmazza a desktop-specifikus dev/sync információkat:
- * lokális DB státusz, pull-status minden domain-tábláról, outbox, eszköz-info,
- * updater.
+ * Megjelenés, Nyelv, Publikus oldal, Adat & biztonság) portja, desktop-
+ * specifikus fülekkel:
+ *   - `Fiók / Kapcsolat` (2026-09-05, a lista ELEJÉN és az alapértelmezett):
+ *     profil, gyülekezet, felhő-munkamenet, biztonsági kód (PIN), 2FA-útjelző,
+ *     varázsló újrafuttatása — bárhonnan nyitható a `kartoteka:open-settings`
+ *     eseménnyel (`detail.tab = 'fiok'`).
+ *   - `Adat & biztonság`: lokális DB státusz, szinkron, outbox, eszköz-info,
+ *     a fejlesztői eszközök (/dev) linkje.
  *
  * Next.js-deps kicserélve:
  *   - `useTheme` (next-themes) → localStorage-based
@@ -21,17 +25,16 @@ import {
   Globe,
   HardDrive,
   Languages,
-  LogOut,
   Moon,
   Palette,
   Shield,
   Sun,
   SunMedium,
   Type,
+  UserRound,
 } from 'lucide-react'
 
 import {
-  Button,
   Dialog,
   DialogContent,
   DialogHeader,
@@ -45,6 +48,7 @@ import {
 import { ThemePicker, useThemeStyle } from '@kartoteka/ui-app'
 
 import { AdatBiztonsagPanel } from './settings/adat-biztonsag-panel'
+import { FiokPanel } from './settings/fiok-panel'
 import { FrissitesPanel } from './settings/frissites-panel'
 import { KonyvelesPanel } from './settings/konyveles-panel'
 // 2026-08-15: a sötét/világos mód logikája átkerült a `src/lib/theme.ts`-be, mert
@@ -116,7 +120,8 @@ export function SettingsDialog({
   initialTab,
 }: SettingsDialogProps) {
   const [prefs, setPrefs] = useState<UserPrefs>(DEFAULT_PREFS)
-  const [activeTab, setActiveTab] = useState<string>(initialTab ?? 'ertesitesek')
+  // 2026-09-05: az alapértelmezett fül a lista ELSŐ eleme, a Fiók / Kapcsolat.
+  const [activeTab, setActiveTab] = useState<string>(initialTab ?? 'fiok')
   const [theme, setThemeState] = useState<ThemeMode>('system')
   const { theme: themeStyle, setTheme: setThemeStyle } = useThemeStyle()
   const [saveMsg, setSaveMsg] = useState<string | null>(null)
@@ -126,8 +131,9 @@ export function SettingsDialog({
     if (!open) return
     setPrefs(loadPrefs())
     setThemeState(loadThemeMode())
-    // A hívó által kért fülre ugrunk minden megnyitáskor (pl. Pénzügy → Könyvelés).
-    setActiveTab(initialTab ?? 'ertesitesek')
+    // A hívó által kért fülre ugrunk minden megnyitáskor (pl. Pénzügy → Könyvelés,
+    // Főoldal „Kapcsolat állapota" → Fiók / Kapcsolat).
+    setActiveTab(initialTab ?? 'fiok')
   }, [open, initialTab])
 
   const flashSaveMsg = useCallback(() => {
@@ -193,6 +199,11 @@ export function SettingsDialog({
         <Tabs value={activeTab} onValueChange={setActiveTab} className="grid grid-cols-[200px_1fr] gap-5 sm:grid-cols-[240px_1fr] sm:gap-7">
           <div className="flex flex-col gap-3 self-start min-w-0">
             <TabsList className="w-full flex-col items-stretch gap-1 rounded-[1.2rem] bg-slate-50 p-2 h-auto">
+              {/* 2026-09-05: Fiók / Kapcsolat a lista ELEJÉN (desk-firstrun-16) */}
+              <TabsTrigger value="fiok" className="w-full justify-start px-3 py-2">
+                <UserRound className="mr-2 size-4" />
+                <span className="flex-1 text-left">Fiók / Kapcsolat</span>
+              </TabsTrigger>
               <TabsTrigger value="ertesitesek" className="w-full justify-start px-3 py-2">
                 <Bell className="mr-2 size-4" />
                 <span className="flex-1 text-left">Értesítések</span>
@@ -254,6 +265,11 @@ export function SettingsDialog({
           </div>
 
           <div className="flex-1 min-w-0">
+            {/* ── FIÓK / KAPCSOLAT ── (2026-09-05: profil, gyülekezet, munkamenet, PIN, 2FA, varázsló) */}
+            <TabsContent value="fiok" className="space-y-4">
+              <FiokPanel onRequestClose={() => onOpenChange(false)} />
+            </TabsContent>
+
             {/* ── ÉRTESÍTÉSEK ── */}
             <TabsContent value="ertesitesek" className="space-y-4">
               <SettingsSection title="E-mail értesítés" icon={<Bell className="size-4" />}>
@@ -455,26 +471,11 @@ export function SettingsDialog({
               <KonyvelesPanel />
             </TabsContent>
 
-            {/* ── ADAT & BIZTONSÁG ── (desktop: sync / DB / device) */}
+            {/* ── ADAT & BIZTONSÁG ── (desktop: sync / DB / device; a „Kijelentkezés
+                minden eszközön" a Fiók / Kapcsolat fül Munkamenet kártyáján ÉL, nem
+                „hamarosan") */}
             <TabsContent value="adatbiztonsag" className="space-y-4">
-              <AdatBiztonsagPanel />
-
-              <SettingsSection title="Kilépés minden eszközön" icon={<LogOut className="size-4" />}>
-                <p className="mb-3 text-sm text-slate-600">
-                  Ez a művelet minden bejelentkezett eszközről (telefon, tablet,
-                  laptop) kilépteti a fiókodat. Ha elveszett vagy eladott egy
-                  eszközt, ezzel biztonságba helyezed a gyülekezet adatait.
-                </p>
-                <Button
-                  type="button"
-                  variant="outline"
-                  className="w-full text-red-600 hover:bg-red-50 hover:text-red-700"
-                  disabled
-                >
-                  <LogOut className="mr-2 size-4" />
-                  Kijelentkezés minden eszközön (hamarosan)
-                </Button>
-              </SettingsSection>
+              <AdatBiztonsagPanel onRequestClose={() => onOpenChange(false)} />
             </TabsContent>
           </div>
         </Tabs>

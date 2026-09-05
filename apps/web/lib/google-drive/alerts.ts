@@ -21,6 +21,8 @@ import 'server-only'
  */
 
 import { getSupabaseAdminClient } from '@/lib/supabase/admin-client'
+import { feladoMezok } from '@/lib/notifications/felado'
+import { insertErtesites } from '@/lib/notifications/ertesites-insert'
 import { getCongregationOfficials } from '@/lib/profiles/officials'
 import { escHtml } from '@/lib/email/escape'
 import { sendEmail } from '@/lib/email/send'
@@ -248,9 +250,11 @@ export async function sendDriveFailureAlert(input: DriveAlertInput): Promise<Dri
           uzenet,
           tipus: input.tipus ?? 'warning',
           hivatkozas: dedup,
+          // Gépi riasztás (service_role, auth.uid() NULL) — a feladó a rendszer.
+          ...feladoMezok('rendszer'),
         }))
-        const { error: insertHiba } = await supabase.from('ertesitesek').insert(sorok)
-        if (insertHiba) result.harangHiba = insertHiba.message
+        const beszuras = await insertErtesites(supabase, sorok, { forras: 'mentes-riasztas' })
+        if (beszuras.error) result.harangHiba = beszuras.error
         else result.harangSorok = sorok.length
       }
     }

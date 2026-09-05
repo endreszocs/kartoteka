@@ -161,8 +161,8 @@ export function AdatexportPanel() {
           <Package className="size-4" />
         </span>
         <div className="min-w-0">
-          <h2 className="font-heading text-xl text-slate-800">Teljes gyülekezeti adatexport</h2>
-          <p className="mt-1 text-sm leading-6 text-slate-600">
+          <h2 className="font-heading text-xl text-foreground">Teljes gyülekezeti adatexport</h2>
+          <p className="mt-1 text-sm leading-6 text-muted-foreground">
             Egy csomagban, géppel olvasható formában (JSON) letöltheted a gyülekezet minden
             nyilvántartását: személyek, családok, anyakönyvek, pénzügyi tételek, leltár, iktató,
             alkalmak. Ez az adathordozhatóság joga — és megszűnés esetén az adatkiadás módja.
@@ -179,7 +179,7 @@ export function AdatexportPanel() {
       )}
 
       {fazis.nev === 'betolt' && (
-        <p className="mt-4 flex items-center gap-2 text-sm text-slate-500">
+        <p className="mt-4 flex items-center gap-2 text-sm text-muted-foreground">
           <Loader2 className="size-4 animate-spin" />
           Az export előkészítése…
         </p>
@@ -187,9 +187,9 @@ export function AdatexportPanel() {
 
       {fazis.nev === 'keszen' && terv && (
         <div className="mt-4">
-          <p className="text-sm text-slate-600">
+          <p className="text-sm text-muted-foreground">
             Gyülekezet:{' '}
-            <span className="font-medium text-slate-800">
+            <span className="font-medium text-foreground">
               {terv.gyulekezetNev || 'a saját gyülekezeted'}
             </span>{' '}
             · {terv.lepesek.length} nyilvántartás
@@ -207,17 +207,17 @@ export function AdatexportPanel() {
 
       {fazis.nev === 'dolgozik' && (
         <div className="mt-4">
-          <p className="flex items-center gap-2 text-sm text-slate-700">
+          <p className="flex items-center gap-2 text-sm text-foreground">
             <Loader2 className="size-4 animate-spin text-teal-600" />
             {fazis.kesz + 1} / {fazis.osszes} — {fazis.eppen}
           </p>
-          <div className="mt-2 h-2 w-full overflow-hidden rounded-full bg-slate-200">
+          <div className="mt-2 h-2 w-full overflow-hidden rounded-full bg-secondary">
             <div
               className="h-full rounded-full bg-teal-600 transition-all"
               style={{ width: `${Math.round((fazis.kesz / Math.max(fazis.osszes, 1)) * 100)}%` }}
             />
           </div>
-          <p className="mt-2 text-xs text-slate-500">
+          <p className="mt-2 text-xs text-muted-foreground">
             Nagy gyülekezetnél ez néhány percig is eltarthat. Hagyd nyitva az oldalt.
           </p>
         </div>
@@ -262,7 +262,7 @@ export function AdatexportPanel() {
             <button
               type="button"
               onClick={() => jsonLetoltes(fazis.csomag)}
-              className="inline-flex items-center justify-center gap-2 rounded-full border border-slate-300 px-5 py-2.5 text-sm font-medium text-slate-700 hover:bg-slate-50"
+              className="inline-flex items-center justify-center gap-2 rounded-full border border-border px-5 py-2.5 text-sm font-medium text-foreground hover:bg-muted"
             >
               <FileJson className="size-4" />
               Letöltés egy JSON-fájlban
@@ -272,12 +272,12 @@ export function AdatexportPanel() {
       )}
 
       {/* ── Ami NINCS a csomagban — kimondva ─────────────────────────────── */}
-      <div className="mt-5 rounded-xl border border-slate-200 bg-slate-50/60 p-4">
-        <p className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-slate-500">
+      <div className="mt-5 rounded-xl border border-border bg-muted/60 p-4">
+        <p className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
           <Info className="size-3.5" />
           Jó tudni
         </p>
-        <ul className="mt-2 space-y-1.5 text-xs leading-5 text-slate-600">
+        <ul className="mt-2 space-y-1.5 text-xs leading-5 text-muted-foreground">
           {CSOMAG_TAJEKOZTATO.map((sor) => (
             <li key={sor} className="flex gap-2">
               <span aria-hidden="true">·</span>

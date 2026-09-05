@@ -118,6 +118,10 @@ export function SupportTab() {
       toast.error(res.error)
     } else {
       toast.success('Válasz elküldve!')
+      // 2026-09-05: a válasz mentése és a kérdező csengő-értesítése KÉT lépés —
+      // ha a második elhal, a szerver `warning`-ot ad; lenyelni tilos, mert a
+      // rendszergazda azt hinné, a lelkész látja a választ.
+      if ('warning' in res && res.warning) toast.warning(res.warning)
       setReply('')
       // FIX 2026-07-11: a szerver 'replied'-re állítja a jegyet — a lista is
       // ezt mutassa ('Megválaszolva'), ne 'Olvasott'-at.

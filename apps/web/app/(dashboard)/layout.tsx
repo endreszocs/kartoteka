@@ -1,4 +1,8 @@
+import { cookies } from 'next/headers'
 import { redirect } from 'next/navigation'
+import { DesktopKapcsolasSav } from '@/components/desktop/desktop-kapcsolas-sav'
+import { DESKTOP_KAPCSOLAS_SUTI } from '@/lib/desktop-kapcsolas/szerver'
+import { KAPCSOLAS_ID_MINTA } from '@kartoteka/supabase-client'
 import { DashboardLayoutClient } from '@/components/layout/dashboard-layout-client'
 import { GlobalPendingIndicator } from '@/components/layout/global-pending-indicator'
 import { SyncProvider } from '@/components/offline/sync-provider'
@@ -13,21 +17,9 @@ import { checkDioceseSetupStatus } from '@/app/(dashboard)/dashboard-egyhazmegye
 import { checkCongregationSetupStatus } from '@/app/(dashboard)/congregation/actions'
 import { getWelcomeWizardStatus } from '@/lib/onboarding/welcome-status'
 import type { SupabaseClient } from '@supabase/supabase-js'
-
-/**
- * Magyar név keresztnév-kinyerés — "Nt. Kovács János" → "János"
- * Ha nem tudjuk felismerni, null-t ad vissza, a fallback az "Lelkipásztor".
- */
-function extractFirstName(fullName: string | null | undefined): string | null {
-  if (!fullName) return null
-  const parts = fullName
-    .trim()
-    .replace(/^(Nt\.|Ft\.|Főt\.|Rev\.|Pál\.)\s+/i, '')
-    .split(/\s+/)
-    .filter(Boolean)
-  if (parts.length === 0) return null
-  return parts[parts.length - 1]
-}
+// 2026-09-05 (profil-kör D7): a keresztnév-kinyerő a közös név-segédbe költözött.
+import { extractFirstName } from '@/lib/utils/name'
+import { resolveAvatarUrl } from '@/lib/auth/profile-avatar-shared'
 
 /**
  * 2026-06-01 — Layout-fetch párhuzamosítás:
@@ -166,14 +158,13 @@ export default async function DashboardLayout({
     Boolean(access.effectiveCongregationId) &&
     !profileOnboardingDone
 
-  // 2026-07-10 (S4-avatar): a beállított profilfotó a headerbe. Elsődleges forrás
-  // az auth user_metadata (a fotó-mentés szinkronizálja, Google OAuth is ide ír) —
-  // NINCS extra DB-lekérés. Fallback: a monorepo ELŐTT beállított fotók csak a
-  // pastor_profiles.photo_url-ban élnek, azokat egy párhuzamos lekérés hozza be.
-  const metadataAvatarUrl =
-    (user.user_metadata?.avatar_url as string | undefined) ||
-    (user.user_metadata?.picture as string | undefined) ||
-    null
+  // 2026-07-10 (S4-avatar) → 2026-09-05 (profil-kör D5): a profilfotó a headerbe,
+  // EGY feloldóval (`resolveAvatarUrl`). Korábban a metaadat (Google `picture`)
+  // megelőzte a saját feltöltést, és a „Kép eltávolítása" döntés a fejlécben
+  // hatástalan maradt volna. A `pastor_profiles` (photo_url + avatar_source)
+  // egy PK-lekérés a párhuzamos kötegben; fail-soft: hiba esetén a metaadat.
+  const metadataAvatarUrl = (user.user_metadata?.avatar_url as string | undefined) || null
+  const metadataPicture = (user.user_metadata?.picture as string | undefined) || null
 
   // 3. Párhuzamos fetch — minden ami egymástól független:
   //    - scope-tábla nevek (3 query egymás között Promise.all-ban)
@@ -187,7 +178,7 @@ export default async function DashboardLayout({
     godMode,
     dioceseSetupStatus,
     congregationSetupStatus,
-    fallbackPhotoUrl,
+    avatarDontes,
   ] = await Promise.all([
     loadScopeNames(supabase, profileRoles),
     needsOnboardingCheck
@@ -200,15 +191,15 @@ export default async function DashboardLayout({
     access.effectiveCongregationId && (activeProfileRole == null || activeProfileRole.scope === 'congregation')
       ? checkCongregationSetupStatus(access.effectiveCongregationId)
       : Promise.resolve({ needsSetup: false, missingFields: [] as string[], congregationId: null as string | null }),
-    // S4-avatar fallback: csak akkor fut, ha a metadata-ban NINCS fotó (legacy fotók).
-    metadataAvatarUrl
-      ? Promise.resolve(null as string | null)
-      : supabase
-          .from('pastor_profiles')
-          .select('photo_url')
-          .eq('user_id', user.id)
-          .maybeSingle()
-          .then((res) => ((res.data as { photo_url: string | null } | null)?.photo_url ?? null)),
+    // A profilkép-döntés (photo_url + avatar_source). `select('*')`: ha az
+    // avatar_source oszlop még nem futott le élesben, a nevesített select 400-at
+    // adna és a fejléc kép nélkül maradna.
+    supabase
+      .from('pastor_profiles')
+      .select('*')
+      .eq('user_id', user.id)
+      .maybeSingle()
+      .then((res) => (res.error ? null : (res.data as { photo_url?: string | null; avatar_source?: string | null } | null))),
     // "Utoljára aktív" heartbeat — throttled (max óránként ír), a párhuzamos
     // fetch-ekkel együtt fut, így nem ad extra kört. A visszatérése nincs
     // destrukturálva (a fenti 6 név után a 7. elem szándékosan ignorált).
@@ -275,6 +266,12 @@ export default async function DashboardLayout({
     )
   }
 
+  // 2026-09-05: az asztali alkalmazás kapcsolási kérése a bejelentkezésen át
+  // sütiben utazik — ha itt van, a tartalom tetején emlékeztető sáv viszi
+  // vissza a lelkészt a jóváhagyó oldalra (a bejelentkezés a kezdőlapra hoz).
+  const desktopKapcsolasSuti = (await cookies()).get(DESKTOP_KAPCSOLAS_SUTI)?.value ?? ''
+  const desktopKapcsolasVar = KAPCSOLAS_ID_MINTA.test(desktopKapcsolasSuti)
+
   return (
     <SyncProvider
       congregationId={access.effectiveCongregationId}
@@ -292,7 +289,12 @@ export default async function DashboardLayout({
           `components/offline/sync-status-button.tsx`. */}
       <DashboardLayoutClient
         profile={profile}
-        avatarUrl={metadataAvatarUrl || fallbackPhotoUrl}
+        avatarUrl={resolveAvatarUrl({
+          source: avatarDontes?.avatar_source ?? null,
+          photoUrl: avatarDontes?.photo_url ?? null,
+          metadataAvatarUrl,
+          picture: metadataPicture,
+        })}
         congregationId={access.effectiveCongregationId}
         role={role}
         master={master}
@@ -325,6 +327,7 @@ export default async function DashboardLayout({
         congregationSetupMissing={congregationSetupStatus.missingFields}
         deferSetupForWalkthrough={shouldStartWalkthrough}
       >
+        {desktopKapcsolasVar ? <DesktopKapcsolasSav /> : null}
         {children}
       </DashboardLayoutClient>
       <WalkthroughClient

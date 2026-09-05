@@ -8,6 +8,17 @@ export function ymd(y: number, m: number, d: number): string {
   return `${y}-${String(m + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`
 }
 
+/**
+ * A MAI nap 'YYYY-MM-DD' alakban, HELYI időzónában (2026-09-05).
+ *
+ * ⚠️ MIÉRT NEM `new Date().toISOString().slice(0, 10)`: az UTC-ből képződik,
+ * ezért Bukarestben éjfél és hajnali 3 között az ELŐZŐ napot adja — az
+ * anyakönyvi dialógusok dátum-alapértéke így egy nappal elcsúszott.
+ */
+export function todayYmd(now: Date = new Date()): string {
+  return ymd(now.getFullYear(), now.getMonth(), now.getDate())
+}
+
 export function parseYMD(s: string): Date {
   return new Date(s + 'T00:00:00')
 }

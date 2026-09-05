@@ -18,6 +18,15 @@
  * oldal, ahol részletesebben és szépen átnézhetem az üzeneteket".
  *
  * ════════════════════════════════════════════════════════════════════════════
+ * 2026-09-05 — KITŐL, MIKOR, MIT (a beszélgetés-nézet adatrétege)
+ * ════════════════════════════════════════════════════════════════════════════
+ * Minden sor kap egy `felado`-t (az új felado_* oszlopokból, vagy régi sornál
+ * a `feladoBontas()` levezetéséből — jelölve, hogy levezetett), egy `kivonat`-ot
+ * a listákhoz, és CSAK markdown-formátumú sornál egy szerveren renderelt,
+ * megtisztított `uzenetHtml`-t. A csengő a `listFrissErtesitesekAction()`-ból
+ * él (5 friss sor + VALÓDI olvasatlan-szám + függő átjelentkezési kérelmek).
+ *
+ * ════════════════════════════════════════════════════════════════════════════
  * ⚠️ MINDEN `'use server'` EXPORT ÉLŐ POST-VÉGPONT
  * ════════════════════════════════════════════════════════════════════════════
  * A védelem NEM a felület, hanem az RLS + a saját `user_id` szűrő:
@@ -30,11 +39,17 @@
 
 import { createClient } from '@/lib/supabase/server'
 
-import type { UzenetLista, UzenetMuveletEredmeny, UzenetSor } from './uzenetek-shared'
-import { MEGOLDVA_CIM_ELOTAG } from './uzenetek-shared'
+import { renderUzenetHtml } from './ertesites-render'
+import { feladoBontas } from './felado'
+import { countPendingTransferNotifications } from './transfer-notifications-actions'
+import type { FrissErtesitesek, UzenetLista, UzenetMuveletEredmeny, UzenetSor } from './uzenetek-shared'
+import { MEGOLDVA_CIM_ELOTAG, markdownSzoveg, szovegKivonat } from './uzenetek-shared'
 
 /** Egyszerre ennyi üzenetet töltünk be. A felület kiírja, ha több van. */
 const ALAP_LIMIT = 200
+
+/** A csengő-panel ennyi friss sort mutat (olvasatlanok elöl). */
+const CSENGO_LIMIT = 5
 
 interface NyersSor {
   id: string
@@ -52,6 +67,13 @@ interface NyersSor {
   megoldva?: boolean | null
   megoldva_at?: string | null
   megoldas_uzenet?: string | null
+  // ⚠️ Csak akkor léteznek, ha a 2026-09-05-ertesitesek-felado.sql lefutott.
+  felado_tipus?: string | null
+  felado_nev?: string | null
+  felado_id?: string | null
+  felado_levezetett?: boolean | null
+  uzenet_format?: string | null
+  broadcast_id?: string | null
 }
 
 /**
@@ -59,9 +81,10 @@ interface NyersSor {
  * régebben olvasottakkal együtt.
  *
  * ⚠️ `select('*')`, NEM oszlop-lista. A `megoldva` / `megoldva_at` /
- *    `megoldas_uzenet` oszlopok csak a migráció lefutása után léteznek; egy
- *    nevesített lista addig 42703-mal elhasalna, és az EGÉSZ oldal üres lenne.
- *    A csillag mindkét világban működik, a hiányzó mezők `undefined`-ok.
+ *    `megoldas_uzenet` (és 2026-09-05-től a `felado_*`) oszlopok csak a
+ *    migráció lefutása után léteznek; egy nevesített lista addig 42703-mal
+ *    elhasalna, és az EGÉSZ oldal üres lenne. A csillag mindkét világban
+ *    működik, a hiányzó mezők `undefined`-ok.
  */
 export async function listErtesitesekAction(): Promise<UzenetLista> {
   const supabase = await createClient()
@@ -88,13 +111,119 @@ export async function listErtesitesekAction(): Promise<UzenetLista> {
   }
 }
 
+/**
+ * A CSENGŐ-PANEL adata (2026-09-05, D3) — a régi kliens-oldali két lekérdezés
+ * és a 30-as plafon helyett.
+ *
+ *  · `sorok`: a legfrissebb CSENGO_LIMIT nem-archivált sor, OLVASATLANOK ELÖL
+ *    (24 órás ablak nélkül — a részletek a beszélgetés-nézetben);
+ *  · `olvasatlan`: VALÓDI szám (`count: 'exact', head: true`), nem a lista
+ *    hossza — 57 olvasatlannál a jelvény 57-et mond, nem 30-at;
+ *  · `fuggoKerelmek`: a függő átjelentkezési kérelmek száma (gyülekezeti
+ *    hatókörben; máshol 0).
+ *
+ * Hibánál a `error` mező beszél — a felület KIÍRJA, nem „0 üzenet"-et mutat.
+ */
+export async function listFrissErtesitesekAction(): Promise<FrissErtesitesek> {
+  const supabase = await createClient()
+  const {
+    data: { user },
+  } = await supabase.auth.getUser()
+  if (!user) return { sorok: [], olvasatlan: 0, fuggoKerelmek: 0, error: 'Nincs bejelentkezett felhasználó.' }
+
+  const [lista, szamlalo, kerelmek] = await Promise.all([
+    supabase
+      .from('ertesitesek')
+      .select('*')
+      .eq('user_id', user.id)
+      .or('archived.is.null,archived.eq.false')
+      // Olvasatlanok elöl (a NULL `olvasva` is olvasatlan), azon belül a legfrissebb.
+      .order('olvasva', { ascending: true, nullsFirst: true })
+      .order('created_at', { ascending: false })
+      .limit(CSENGO_LIMIT),
+    supabase
+      .from('ertesitesek')
+      .select('id', { count: 'exact', head: true })
+      .eq('user_id', user.id)
+      .or('archived.is.null,archived.eq.false')
+      .or('olvasva.is.null,olvasva.eq.false'),
+    countPendingTransferNotifications(),
+  ])
+
+  if (lista.error) {
+    return {
+      sorok: [],
+      olvasatlan: 0,
+      fuggoKerelmek: kerelmek.count,
+      error: `A friss üzenetek nem tölthetők be: ${lista.error.message}`,
+    }
+  }
+
+  const nyers = (lista.data ?? []) as unknown as NyersSor[]
+  const nevek = await gyulekezetNevek(supabase, nyers)
+  const eredmeny: FrissErtesitesek = {
+    sorok: nyers.map((r) => alakit(r, nevek)),
+    olvasatlan: szamlalo.error ? 0 : (szamlalo.count ?? 0),
+    fuggoKerelmek: kerelmek.count,
+  }
+  // A számlálók hibája NEM néma: a lista megvan, de a jelvény nem hazudhat 0-t.
+  if (szamlalo.error) {
+    eredmeny.error = `Az olvasatlan üzenetek száma nem kérdezhető le: ${szamlalo.error.message}`
+  } else if (kerelmek.error) {
+    eredmeny.error = `A függő átjelentkezési kérelmek száma nem kérdezhető le: ${kerelmek.error}`
+  }
+  return eredmeny
+}
+
+/**
+ * MARKDOWN-E A SOR? — a renderelés kapuja (fail-closed).
+ *
+ *  · `uzenet_format = 'markdown'` → igen (csak a rendszergazdai hírlevél írja);
+ *  · `uzenet_format = 'text'`     → NEM, akkor sem, ha a törzsben `**` van
+ *    (felhasználói szöveg: elutasítás indoklása, átjelentkezési megjegyzés);
+ *  · nincs ilyen oszlop (a 2026-09-05-ös SQL még nem futott) → csak a régi
+ *    hírlevél-sorok: `release` típus vagy „Kartotéka — …" cím. Ugyanezt a két
+ *    ismertetőjegyet írja az SQL visszatöltése is 'markdown'-ra.
+ */
+function uzenetMarkdownE(r: NyersSor, cim: string): boolean {
+  if (r.uzenet_format === 'markdown') return true
+  if (r.uzenet_format === 'text') return false
+  return (r.tipus ?? '') === 'release' || /^kartotéka\s+[—–-]/i.test(cim)
+}
+
 function alakit(r: NyersSor, nevek: Map<string, string>): UzenetSor {
   const cim = (r.cim ?? '').trim()
+  const uzenet = r.uzenet ?? ''
+  const congregationNev = r.congregation_id ? (nevek.get(r.congregation_id) ?? null) : null
+
+  // FELADÓ: oszlop-először, régi sornál levezetés. A `felado_levezetett` jelet a
+  // trigger/visszatöltés is állíthatja — az ilyen sor a felületen „valószínű
+  // feladó", akkor is, ha az oszlop ki van töltve.
+  const feladoAlap = feladoBontas({
+    tipus: r.tipus,
+    hivatkozas: r.hivatkozas,
+    cim,
+    // 2026-09-05 (brief 3. pont): a regisztráló neve a TÖRZS elején van, és a
+    // megyei felület sorainál a gyülekezet MEGLÉTE dönt (kerület vs. gyülekezet).
+    uzenet,
+    congregationId: r.congregation_id ?? null,
+    felado_tipus: r.felado_tipus,
+    felado_nev: r.felado_nev,
+    felado_id: r.felado_id,
+    congregationNev,
+  })
+  const felado = { ...feladoAlap, levezetett: feladoAlap.levezetett || r.felado_levezetett === true }
+
+  const markdown = uzenetMarkdownE(r, cim)
+  // ⚠️ FAIL-CLOSED KAPU: a renderelő KIZÁRÓLAG markdown-sornál fut.
+  const uzenetHtml = markdown ? renderUzenetHtml(uzenet) : null
+  const kivonat = markdown ? markdownSzoveg(uzenet) : szovegKivonat(uzenet)
+
   return {
     id: r.id,
     tipus: r.tipus ?? 'info',
     cim: cim || 'Értesítés',
-    uzenet: r.uzenet ?? '',
+    uzenet,
     olvasva: r.olvasva === true,
     archived: r.archived === true,
     createdAt: r.created_at,
@@ -105,12 +234,17 @@ function alakit(r: NyersSor, nevek: Map<string, string>): UzenetSor {
       (r.hivatkozas?.startsWith('admin_access:')
         ? r.hivatkozas.replace('admin_access:', '')
         : null),
-    congregationNev: r.congregation_id ? (nevek.get(r.congregation_id) ?? null) : null,
+    congregationNev,
     // ⚠️ KÉT FORRÁS. Oszlop, ha van; egyébként a cím-előtag (a feloldás
     //    fail-closed ága azt írja be, ha a migráció még nem futott le).
     megoldva: r.megoldva === true || cim.startsWith(MEGOLDVA_CIM_ELOTAG),
     megoldvaAt: r.megoldva_at ?? null,
     megoldasUzenet: r.megoldas_uzenet ?? null,
+    felado,
+    uzenetHtml,
+    kivonat,
+    uzenetFormat: markdown ? 'markdown' : 'text',
+    broadcastId: r.broadcast_id ?? null,
   }
 }
 

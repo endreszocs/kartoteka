@@ -23,6 +23,80 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-09-05] — Asztali első indítás Google-fiókkal, újratervezett éves naptár, beszélgetés-nézetű értesítések, pontos profil
+<!-- key: 2026-09-05-desktop-naptar-ertesites-profil -->
+<!-- category: feature -->
+<!-- version: 0.9.227 (web) · 0.9.13 (asztali) -->
+<!-- targets: lelkipásztorok (asztali alkalmazás, naptár, értesítések, profil); a rendszergazdát a 3 adatbázis-lépés érinti -->
+
+### ✨ Új funkciók
+
+- **Az asztali alkalmazás első indítása — jelszó nélkül, a webes fiókkal**: új, hatlépéses
+  első indítás vezet végig: a gép összekapcsolása a fiókoddal (Google-belépéssel is: a
+  böngészőben jelentkezel be, összehasonlítod a hatjegyű ellenőrző kódot, és jóváhagyod),
+  a gyülekezeted megerősítése, a biztonsági kód (PIN) beállítása, majd az első
+  letöltés modulonként látható haladással. Utána a PIN elég a belépéshez, internet nélkül is.
+- **Elfelejtett PIN — a weben oldod meg**: az asztali appban „Elfelejtettem a kódot" →
+  a gépet újra összekapcsolod a fiókoddal (a kartoteka.app oldalon, bejelentkezve hagyod
+  jóvá), és új kódot adsz meg. A PIN soha nem hagyja el a gépedet, adat nem vész el.
+- **Profil → Biztonság → Asztali alkalmazás**: látod az összekapcsolt gépeket, és egy
+  gombbal kijelentkeztetheted az összes többi eszközt.
+- **Naptár: keresztelő, esküvő, konfirmáció, temetés és szabadság a naptárban** — öt új
+  alkalom-típus. A tervezett anyakönyvi alkalmat a naptárból rögzíted; amikor
+  anyakönyvezed, a naptár-bejegyzés összekapcsolódik az anyakönyvi sorral (egy tény, egy
+  helyen — semmi nem másolódik kétszer). A megtörtént anyakönyvi események, a tagok
+  születésnapjai és névnapjai külön, ki-be kapcsolható rétegként jelennek meg a
+  naptár-csempén.
+- **Újratervezett, többlapos éves naptár-nyomtatvány**: eddig a rögzített programok
+  többsége csak egy pötty volt a papíron. Mostantól havi lapokon minden alkalom NÉVVEL,
+  időponttal és helyszínnel szerepel; van gyülekezeti terjesztésre szánt változat
+  (személyes adatok és szabadság nélkül) és lelkészi példány (mindennel).
+- **Születésnapos és névnapos naptár nyomtatványa**: hónapokra bontva a gyülekezet
+  tagjainak születésnapjai (életkorral) és névnapjai — belső használatra.
+- **Értesítések mint beszélgetés**: az Értesítések oldal mostantól úgy néz ki, mint egy
+  üzenetküldő: bal oldalt a feladók (Kartotéka rendszer, rendszergazda, egyházmegye,
+  egyházkerület, gyülekezet…), jobb oldalt a szál időrendben, dátum-elválasztókkal,
+  kibontható üzenetekkel. Látod, KITŐL, MIKOR, MIT. A csengő panelje is megújult.
+
+### 🐛 Javítások
+
+- **A hírlevél nyers jelekkel jelent meg** („## …", „**…**") — mostantól formázva olvasható.
+- **Az „E heti névnapok" mindig üres volt** egy típus-összehasonlítási hiba miatt — javítva;
+  a névnap-egyeztetés ékezet-független, és a többtagú keresztnevek („Anna Mária",
+  „Zsolt-Attila") mindegyik tagját figyeli.
+- **Profil**: a levágott e-mail cím és egyházmegye-név szó-határon törik; a fejléc és a
+  profil ugyanazt a szerepkört mutatja (az aktív profilt); az egyházmegye a gyülekezetből
+  következik, ha a nyilvántartás üres; a dátumok egységes alakúak; sötét módban is olvasható.
+- **Asztali szinkron**: az átmeneti hálózati hiba többé nem „végleges" — a rendszer
+  újrapróbál; visszakapcsolódáskor minden várakozó rögzítés felmegy; a háttér-frissítés
+  hibája nem „Friss adatok" felirat mögé bújik; a helyi adatok nem törlődnek egy üres,
+  jogosulatlan válasz miatt.
+- **Az asztali munkamenet tárolása**: a belépés eddig — a szándékkal ellentétben — nem a
+  gép védett kulcstárában élt; mostantól ott van, darabolva (a Windows kulcstár
+  méretkorlátja miatt). **A frissítés után egyszer újra össze kell kapcsolni a gépet a
+  fiókoddal, és új biztonsági kódot kell megadni** — a régi kód nem volt a fiókodhoz kötve,
+  ezért biztonsági okból nem vesszük át. A helyi adatok megmaradnak.
+- **Naptár nagy képernyőn**: a programok-csempe és az éves naptár ablaka kitölti a
+  rendelkezésre álló helyet; telefonon minden változatlan.
+- **Program-mentés**: az ismétlődés vége nem lehet az első alkalom előtt; egynapos
+  alkalomnál a befejezés nem előzheti meg a kezdést (eddig ezek némán elrontották a
+  megjelenítést).
+
+### 🔒 Biztonság
+
+- A szabadság és a tervezett anyakönyvi alkalom SOHA nem kerül a nyilvános weboldalra és
+  a megosztott gyülekezeti naptár-hivatkozásba — a kapu a mentésben, az adatbázisban és a
+  nyilvános lekérdezésekben is benne van.
+- Az értesítés feladója utólag nem írható át.
+
+### 🛠️ Rendszergazdának
+
+- Négy adatbázis-lépés fut fájlból: `2026-09-05-desktop-kapcsolas.sql`,
+  `2026-09-05-naptar-anyakonyv-szabadsag-nevnap.sql`, `2026-09-05-ertesitesek-felado.sql`,
+  `2026-09-05-profil-pontossag.sql` (a profilkép forrása + a régi szolgálati helyek átemelése
+  a strukturált előzménybe) — mind idempotens, a végén ellenőrző ráccsal. Az asztali változásokhoz új asztali kiadás
+  (0.9.13) kell.
+
 ## [2026-09-05] — A személyi szám védelmének megerősítése
 <!-- key: 2026-09-05-szemelyi-szam-megerosites -->
 <!-- category: security -->

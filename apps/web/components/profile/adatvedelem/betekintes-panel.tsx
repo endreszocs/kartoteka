@@ -31,7 +31,7 @@ const SULY_STILUS: Record<MuveletSuly, string> = {
   letrehozas: 'bg-emerald-50 text-emerald-800 border-emerald-200',
   modositas: 'bg-amber-50 text-amber-800 border-amber-200',
   torles: 'bg-rose-50 text-rose-800 border-rose-200',
-  egyeb: 'bg-slate-50 text-slate-700 border-slate-200',
+  egyeb: 'bg-muted text-foreground border-border',
 }
 
 const SULY_CIMKE: Record<MuveletSuly, string> = {
@@ -115,8 +115,8 @@ export function BetekintesPanel() {
           <Eye className="size-4" />
         </span>
         <div className="min-w-0">
-          <h2 className="font-heading text-xl text-slate-800">Ki nyúlt az adatokhoz?</h2>
-          <p className="mt-1 text-sm leading-6 text-slate-600">
+          <h2 className="font-heading text-xl text-foreground">Ki nyúlt az adatokhoz?</h2>
+          <p className="mt-1 text-sm leading-6 text-muted-foreground">
             Közérthető kimutatás a rendszer naplójából: ki, mikor, milyen műveletet végzett. Csak
             azt látod, amihez jogosultságod van — a saját tevékenységedet, illetve a saját
             gyülekezeted adatain végzett műveleteket.
@@ -126,7 +126,7 @@ export function BetekintesPanel() {
 
       {/* ── Szűrők ────────────────────────────────────────────────────────── */}
       <div className="mt-4 flex flex-wrap items-center gap-2">
-        <div className="inline-flex rounded-full border border-slate-300 p-0.5">
+        <div className="inline-flex rounded-full border border-border p-0.5">
           {(
             [
               { ertek: 'gyulekezet' as const, cimke: 'A gyülekezet adatai' },
@@ -141,7 +141,7 @@ export function BetekintesPanel() {
               className={`rounded-full px-3 py-1.5 text-xs font-medium transition-colors ${
                 szelet === opcio.ertek
                   ? 'bg-teal-600 text-white'
-                  : 'text-slate-600 hover:bg-slate-100'
+                  : 'text-muted-foreground hover:bg-muted'
               }`}
             >
               {opcio.cimke}
@@ -152,7 +152,7 @@ export function BetekintesPanel() {
         <select
           value={napok}
           onChange={(e) => valasztNapok(Number(e.target.value))}
-          className="rounded-full border border-slate-300 bg-transparent px-3 py-1.5 text-xs font-medium text-slate-700"
+          className="rounded-full border border-border bg-transparent px-3 py-1.5 text-xs font-medium text-foreground"
           aria-label="Időtáv"
         >
           {BETEKINTES_IDOTAVOK.map((t) => (
@@ -165,7 +165,7 @@ export function BetekintesPanel() {
         <button
           type="button"
           onClick={frissit}
-          className="inline-flex items-center gap-1.5 rounded-full border border-slate-300 px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50"
+          className="inline-flex items-center gap-1.5 rounded-full border border-border px-3 py-1.5 text-xs font-medium text-foreground hover:bg-muted"
         >
           <RefreshCw className="size-3.5" />
           Frissítés
@@ -175,7 +175,7 @@ export function BetekintesPanel() {
       {/* ── Tartalom ──────────────────────────────────────────────────────── */}
       <div className="mt-4">
         {allapot.nev === 'betolt' && (
-          <p className="flex items-center gap-2 text-sm text-slate-500">
+          <p className="flex items-center gap-2 text-sm text-muted-foreground">
             <Loader2 className="size-4 animate-spin" />
             A kimutatás betöltése…
           </p>
@@ -207,10 +207,10 @@ export function BetekintesPanel() {
         )}
 
         {allapot.nev === 'kesz' && allapot.naploElerheto && allapot.bejegyzesek.length === 0 && (
-          <div className="rounded-xl border border-slate-200 bg-slate-50/60 p-4">
-            <p className="text-sm leading-6 text-slate-700">
+          <div className="rounded-xl border border-border bg-muted/60 p-4">
+            <p className="text-sm leading-6 text-foreground">
               A választott időszakban nincs naplózott művelet.{' '}
-              <span className="text-slate-500">
+              <span className="text-muted-foreground">
                 Ez nem jelenti azt, hogy senki nem nézte meg az adatokat — a megtekintést a rendszer
                 ma nem naplózza.
               </span>
@@ -226,9 +226,9 @@ export function BetekintesPanel() {
                 return (
                   <li
                     key={`${b.forras}-${b.id}`}
-                    className="flex flex-col gap-1.5 rounded-xl border border-slate-200 p-3 sm:flex-row sm:items-start sm:justify-between sm:gap-3"
+                    className="flex flex-col gap-1.5 rounded-xl border border-border p-3 sm:flex-row sm:items-start sm:justify-between sm:gap-3"
                   >
-                    <p className="min-w-0 text-sm leading-6 text-slate-700">{auditMondat(b)}</p>
+                    <p className="min-w-0 text-sm leading-6 text-foreground">{auditMondat(b)}</p>
                     <span
                       className={`inline-flex w-fit shrink-0 rounded-full border px-2 py-0.5 text-[11px] font-medium ${SULY_STILUS[suly]}`}
                     >
@@ -239,7 +239,7 @@ export function BetekintesPanel() {
               })}
             </ol>
             {allapot.csonkolt && (
-              <p className="mt-3 text-xs leading-5 text-slate-500">
+              <p className="mt-3 text-xs leading-5 text-muted-foreground">
                 A lista a legutóbbi {BETEKINTES_PLAFON} bejegyzést mutatja. Régebbi eseményekhez
                 válassz rövidebb időtávot, vagy kérd a rendszergazdától a teljes naplót.
               </p>
@@ -249,12 +249,12 @@ export function BetekintesPanel() {
       </div>
 
       {/* ── A napló korlátai — KIMONDVA ───────────────────────────────────── */}
-      <div className="mt-5 rounded-xl border border-slate-200 bg-slate-50/60 p-4">
-        <p className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-slate-500">
+      <div className="mt-5 rounded-xl border border-border bg-muted/60 p-4">
+        <p className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
           <Info className="size-3.5" />
           Mit tud és mit nem tud ez a kimutatás
         </p>
-        <ul className="mt-2 space-y-1.5 text-xs leading-5 text-slate-600">
+        <ul className="mt-2 space-y-1.5 text-xs leading-5 text-muted-foreground">
           {NAPLO_KORLATOK.map((sor) => (
             <li key={sor} className="flex gap-2">
               <span aria-hidden="true">·</span>

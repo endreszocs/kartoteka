@@ -6,6 +6,7 @@ import {
   SESSION_MODE_COOKIE,
   buildSessionModeCookieOptions,
 } from '@/lib/auth/session-mode'
+import { getPublicOrigin } from '@/lib/utils/public-origin'
 
 /**
  * OAuth callback — a Supabase exchangeCodeForSession után beállítjuk a
@@ -20,43 +21,12 @@ function applySessionModeCookie(response: NextResponse, rememberMe = false): Nex
 }
 
 /**
- * Helyes "kifelé látható" origin meghatározása.
- *
- * 2026-04-28 KRITIKUS FIX: Railway proxy mögött a Next.js Node-szerver belső
- * portja `localhost:8080`. A `new URL(request.url).origin` ezért
- * `http://localhost:8080`-at ad vissza — ami a `redirect()`-ben a böngészőt
- * `localhost:8080`-ra küldi. Ez okozta az "OAuth Google flow → localhost:8080"
- * bugot (Endre 1+ napon át próbálta javítani Supabase Dashboard config-gal,
- * de hiába — a bug a saját callback-route-ban volt!).
- *
- * Megoldás: PRIORITÁS sorrendben:
- *   1. process.env.NEXT_PUBLIC_APP_URL (Railway env-változó, build-time)
- *   2. X-Forwarded-Host + X-Forwarded-Proto headerek (proxy szabványosak)
- *   3. Host header
- *   4. Fallback: a request URL origin-ja (csak lokális dev-en helyes)
- *
- * Hivatkozás: https://github.com/supabase/supabase/issues/27614
+ * A "kifelé látható" origin (2026-04-28 KRITIKUS FIX — Railway mögött a
+ * `request.url` origója a BELSŐ `localhost:8080`) 2026-09-05 óta a közös
+ * `@/lib/utils/public-origin` modulban él: ugyanazt használja a Google Drive
+ * OAuth-visszatérés és az asztali eszköz-kapcsolás `nyit` útvonala is —
+ * egy igazságforrás, hogy a hibaosztály ne bukkanjon fel újra másolatban.
  */
-function getPublicOrigin(request: Request): string {
-  const envOrigin = process.env.NEXT_PUBLIC_APP_URL?.trim()
-  if (envOrigin) {
-    try {
-      return new URL(envOrigin).origin
-    } catch {
-      // ha érvénytelen az env-érték, megyünk tovább a fallback-re
-    }
-  }
-  const forwardedHost = request.headers.get('x-forwarded-host')
-  const forwardedProto = request.headers.get('x-forwarded-proto') || 'https'
-  if (forwardedHost) {
-    return `${forwardedProto}://${forwardedHost}`
-  }
-  const host = request.headers.get('host')
-  if (host) {
-    return `${forwardedProto}://${host}`
-  }
-  return new URL(request.url).origin
-}
 
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url)

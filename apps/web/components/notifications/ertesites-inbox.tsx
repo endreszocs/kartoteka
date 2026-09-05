@@ -1,54 +1,61 @@
 'use client'
 
 /**
- * ÉRTESÍTÉSEK — ÁTNÉZHETŐ LISTA (2026-08-11).
+ * ÉRTESÍTÉSEK — BESZÉLGETÉS-NÉZET (2026-09-05, „Apple-chat", D4–D7).
  *
  * ════════════════════════════════════════════════════════════════════════════
- * MIÉRT SZÜLETETT — A TULAJDONOS KÉRÉSE
+ * MIÉRT ÍRÓDOTT ÁT A LISTA
  * ════════════════════════════════════════════════════════════════════════════
- * „A megnyitásra kattintva nem jelenik meg az értesítések oldal, ahol
- * részletesebben és szépen átnézhetem az üzeneteket."
+ * A 2026-08-11-es egyoszlopos kártyalista megválaszolta a „mi történt / mikor /
+ * mit tegyek" kérdéseket, de a tulajdonos negyedik kérdésére — KITŐL? — nem
+ * tudott felelni: az `ertesitesek` tábla feladó nélkül élt, és a lista is
+ * időblokkokban, nem küldőnként mutatta a sorokat. Mostantól:
  *
- * Igaza volt: ilyen oldal NEM LÉTEZETT. Az `ertesitesek` tábla sorait EGYETLEN
- * felület mutatta, a fejléc-csengő lenyíló panelje — ott is csak az olvasatlanok
- * és a 24 óránál frissebben olvasottak. Ami ennél régebbi (vagy archivált) volt,
- * az a felületről VÉGLEG eltűnt, miközben a sor ott maradt az adatbázisban.
+ *   BAL OSZLOP  — beszélgetés-lista feladó szerint (avatar, név, utolsó
+ *                 üzenet kivonata, idő, olvasatlan-pirula), kereséssel és a
+ *                 régi három kapcsolóval EGY szűrőben (Mind / Olvasatlan / Archívum);
+ *   JOBB OSZLOP — a szál buborékokban, időrendben (régi fent, új lent),
+ *                 dátum-elválasztókkal; a részletek (Teendő, Megoldva, Megnyitás,
+ *                 jóváhagyás) a buborékban.
  *
  * ════════════════════════════════════════════════════════════════════════════
- * A NÉGY KÉRDÉS, AMIRE EGY KIBONTOTT ÜZENET VÁLASZOL
+ * URL-ÁLLAPOT, NEM useState (D6)
  * ════════════════════════════════════════════════════════════════════════════
- *   MI TÖRTÉNT?   — a törzs, teljes egészében (nem 2 sorra vágva)
- *   MIKOR?        — pontos bukaresti idő ÉS relatív idő, együtt
- *   KIT ÉRINT?    — az érintett gyülekezet neve, ha van
- *   MIT TEGYEK?   — a „Teendő" külön dobozban, plusz a működő hivatkozás
- * …és ha a baj MÁR ELMÚLT, azt zöld sávban kimondjuk. Egy rendszer, ami csak
- * panaszkodni tud, előbb-utóbb a panaszait is elveszti.
+ * `?felado=<kulcs>&uzenet=<id>&archivum=1&szuro=olvasatlan` — a csengő és a
+ * mélylinkek ide mutatnak, a böngésző Vissza gombja a listára visz (mobilon a
+ * lista → szál lépés egy history-bejegyzés). Az URL-t a natív
+ * `history.pushState/replaceState` írja: a Next.js router ezt szinkronizálja a
+ * `useSearchParams`-szal, de NEM kér új szerver-renderelést — egy `router.push`
+ * minden szál-váltásnál újra lefuttatná az oldal három lekérdezését.
  *
- * ⚠️ MOBIL-ELSŐ. A lelkész úton, telefonon nézi: minden érintőfelület 44 px,
- *    a kártya 375 px-en sem lóg ki, és a szűrők görgethető sorban állnak.
- * ⚠️ TÉMA-TOKENEK. Hardkódolt fehér/slate SEHOL — a régi `/notifications` oldal
- *    sötét témában olvashatatlan volt.
+ * ════════════════════════════════════════════════════════════════════════════
+ * NINCS OPTIMISTA HAZUGSÁG — de a lelkész keze alól sem tűnik el semmi
+ * ════════════════════════════════════════════════════════════════════════════
+ * Minden írás szerver-akció; a képernyő csak SIKER után változik (a sor
+ * helyben frissül a szerver válasza alapján, majd egy összevont újraolvasás
+ * egyeztet). Hiba → toast. Az „Olvasatlan" szűrőben a most olvasottnak jelölt
+ * sorok a szűrőváltásig bent maradnak (`megtartott`).
+ *
+ * ⚠️ MOBIL-ELSŐ: 375 px-en egy oszlop (lista, majd a szál 44 px-es „← Üzenetek"
+ *    gombbal); minden érintőfelület ≥ 44 px. Sötét mód kizárólag tokenekkel.
  */
 
-import { useCallback, useMemo, useState, useTransition } from 'react'
-import Link from 'next/link'
-import {
-  Archive,
-  ArchiveRestore,
-  ArrowUpRight,
-  CheckCheck,
-  CheckCircle2,
-  ChevronDown,
-  Clock,
-  Inbox,
-  Loader2,
-  MailOpen,
-  Church,
-  Wrench,
-} from 'lucide-react'
+import { useCallback, useMemo, useRef, useState, useTransition } from 'react'
+import { useSearchParams } from 'next/navigation'
+import { toast } from 'sonner'
 
-import { Button } from '@/components/ui/button'
-import { cn } from '@/lib/utils'
+import { approveAdminAccess, denyAdminAccess } from '@/app/(dashboard)/notifications/actions'
+import {
+  csoportositBeszelgetesek,
+  ertesitesUrl,
+  keresBeszelgetesek,
+  osszesOlvasatlan,
+  szurSorok,
+  urlAllapot,
+  valasztSzal,
+  type ErtesitesUrlAllapot,
+  type SzalSzuro,
+} from '@/lib/notifications/beszelgetesek'
 import {
   archivalErtesitestAction,
   jelolMindOlvasottnakAction,
@@ -57,43 +64,69 @@ import {
   listErtesitesekAction,
   visszaallitErtesitestAction,
 } from '@/lib/notifications/uzenetek-actions'
-import {
-  CSOPORTOK,
-  IDO_CIMKEK,
-  bontUzenet,
-  idoCsoportja,
-  uzenetCsoportja,
-  type IdoCsoport,
-  type UzenetCsoport,
-  type UzenetSor,
-} from '@/lib/notifications/uzenetek-shared'
-import {
-  BUKARESTI_ZONA_FELIRAT,
-  bukarestiNapKulcs,
-  huIdopontBukarest,
-} from '@/lib/utils/idopont-bukarest'
+import type { UzenetMuveletEredmeny, UzenetSor } from '@/lib/notifications/uzenetek-shared'
+import { cn } from '@/lib/utils'
 
-import { getTypeVisual, notificationLink, relativHuIdo } from './ertesites-vizualis'
+import { BeszelgetesLista } from './beszelgetes-lista'
+import { BeszelgetesSzal } from './beszelgetes-szal'
+import type { UzenetMuveletek } from './uzenet-buborek'
+import { useErtesitesRealtime } from './use-ertesites-realtime'
 
-type SzuroCsoport = UzenetCsoport | 'mind'
+const URES_HALMAZ: ReadonlySet<string> = new Set()
+
+/** Az összevont újraolvasás késleltetése a láthatóságra jelölés után. */
+const UJRAOLVASAS_MS = 600
 
 export function ErtesitesInbox({
   kezdoSorok,
   kezdoHiba,
   tobbVan,
+  userId,
 }: {
   kezdoSorok: UzenetSor[]
   kezdoHiba?: string | null
   tobbVan?: boolean
+  /** A bejelentkezett felhasználó — az élő frissítés (realtime) szűrője. */
+  userId?: string | null
 }) {
   const [sorok, setSorok] = useState<UzenetSor[]>(kezdoSorok)
   const [hiba, setHiba] = useState<string | null>(kezdoHiba ?? null)
-  const [csoport, setCsoport] = useState<SzuroCsoport>('mind')
-  const [csakOlvasatlan, setCsakOlvasatlan] = useState(false)
-  const [archivum, setArchivum] = useState(false)
-  const [nyitott, setNyitott] = useState<string | null>(null)
+  const [kereses, setKereses] = useState('')
   const [fut, indit] = useTransition()
 
+  // ── URL-állapot ──────────────────────────────────────────────────────────
+  const sp = useSearchParams()
+  const allapot = useMemo(() => urlAllapot((k) => sp.get(k)), [sp])
+
+  const allitUrl = useCallback(
+    (uj: Partial<ErtesitesUrlAllapot>, mod: 'push' | 'replace') => {
+      const url = ertesitesUrl({ ...allapot, ...uj })
+      if (mod === 'push') window.history.pushState(null, '', url)
+      else window.history.replaceState(null, '', url)
+    },
+    [allapot],
+  )
+
+  // ── „Megtartott" sorok: az Olvasatlan szűrőben nem tűnhet el, amit épp olvas ──
+  const ctxKulcs = `${allapot.szuro}|${allapot.felado ?? ''}`
+  const [megtartott, setMegtartott] = useState<{ ctx: string; ids: ReadonlySet<string> }>({ ctx: ctxKulcs, ids: URES_HALMAZ })
+  const aktivMegtartott = megtartott.ctx === ctxKulcs ? megtartott.ids : URES_HALMAZ
+
+  // ── Levezetett adatok ────────────────────────────────────────────────────
+  const szurtSorok = useMemo(() => szurSorok(sorok, allapot.szuro, aktivMegtartott), [sorok, allapot.szuro, aktivMegtartott])
+  const osszes = useMemo(() => csoportositBeszelgetesek(szurtSorok), [szurtSorok])
+  const lathato = useMemo(() => keresBeszelgetesek(osszes, kereses), [osszes, kereses])
+  const olvasatlanOssz = useMemo(() => osszesOlvasatlan(osszes), [osszes])
+
+  // A mélylink (`?uzenet=`) feladó nélkül is megtalálja a szálat; egy NEM ILLŐ
+  // `?felado=` kulcs viszont NEM választás — mobilon a lista marad látható, nem
+  // egy üres szál (a szabály és a MIÉRT a `valasztSzal`-nál).
+  const { aktiv, valasztott: szalNyitva } = useMemo(
+    () => valasztSzal(osszes, lathato, sorok, allapot),
+    [osszes, lathato, sorok, allapot],
+  )
+
+  // ── Újraolvasás (fail-closed: hibánál a régi lista marad, a hiba kiírva) ──
   const ujratolt = useCallback(async () => {
     const r = await listErtesitesekAction()
     if (r.error) {
@@ -104,17 +137,26 @@ export function ErtesitesInbox({
     setSorok(r.rows ?? [])
   }, [])
 
-  /**
-   * ⚠️ NINCS OPTIMISTA HAZUGSÁG. A művelet után ÚJRAOLVASSUK a listát a
-   *    szerverről. Ha az írás elbukott (lejárt munkamenet, RLS), a képernyő
-   *    NEM mutat sikert — pontosan az a hibaosztály, amit ez a kör irt ki.
-   */
+  useErtesitesRealtime(userId, () => {
+    void ujratolt()
+  })
+
+  const ujraolvasasIdozito = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const utemezUjraolvasast = useCallback(() => {
+    if (ujraolvasasIdozito.current) clearTimeout(ujraolvasasIdozito.current)
+    ujraolvasasIdozito.current = setTimeout(() => {
+      ujraolvasasIdozito.current = null
+      void ujratolt()
+    }, UJRAOLVASAS_MS)
+  }, [ujratolt])
+
+  /** Egy szerver-művelet, utána újraolvasás. A képernyő csak SIKER után változik. */
   const muvelet = useCallback(
-    (fn: () => Promise<{ success: boolean; error?: string }>) => {
+    (fn: () => Promise<UzenetMuveletEredmeny>, hibaElotag: string) => {
       indit(async () => {
         const r = await fn()
         if (!r.success) {
-          setHiba(r.error ?? 'A művelet nem sikerült.')
+          toast.error(`${hibaElotag}: ${r.error ?? 'ismeretlen hiba.'}`)
           return
         }
         await ujratolt()
@@ -123,447 +165,139 @@ export function ErtesitesInbox({
     [ujratolt],
   )
 
-  const maKulcs = bukarestiNapKulcs()
-  const tegnapKulcs = useMemo(() => {
-    const d = new Date()
-    d.setUTCDate(d.getUTCDate() - 1)
-    return bukarestiNapKulcs(d)
-  }, [])
+  // ── Láthatóságra olvasottnak (D5) — egyszer soronként, csak siker után ──
+  const jeloltRef = useRef<Set<string>>(new Set())
+  const onLathato = useCallback(
+    (id: string) => {
+      if (jeloltRef.current.has(id)) return
+      jeloltRef.current.add(id)
+      void (async () => {
+        const r = await jelolOlvasottnakAction(id)
+        if (!r.success) {
+          jeloltRef.current.delete(id)
+          toast.error(`Az üzenet olvasottnak jelölése nem sikerült: ${r.error ?? 'ismeretlen hiba.'}`)
+          return
+        }
+        // A szerver MEGERŐSÍTETTE — a sor helyben frissül, a szűrő megtartja,
+        // az összevont újraolvasás pedig a számlálókat egyezteti.
+        const ctx = ctxKulcs
+        setMegtartott((prev) => ({ ctx, ids: new Set([...(prev.ctx === ctx ? prev.ids : URES_HALMAZ), id]) }))
+        setSorok((prev) =>
+          prev.map((s) => (s.id === id ? { ...s, olvasva: true, readAt: s.readAt ?? new Date().toISOString() } : s)),
+        )
+        utemezUjraolvasast()
+      })()
+    },
+    [ctxKulcs, utemezUjraolvasast],
+  )
 
-  const olvasatlanSzam = sorok.filter((s) => !s.olvasva && !s.archived).length
-  const archivaltSzam = sorok.filter((s) => s.archived).length
+  // ── Buborék-műveletek ────────────────────────────────────────────────────
+  const muveletek = useMemo<UzenetMuveletek>(
+    () => ({
+      onLathato,
+      onOlvasott: (id) => muvelet(() => jelolOlvasottnakAction(id), 'Az olvasottnak jelölés nem sikerült'),
+      onOlvasatlan: (id) => muvelet(() => jelolOlvasatlannakAction(id), 'Az olvasatlanra állítás nem sikerült'),
+      onArchival: (id) => muvelet(() => archivalErtesitestAction(id), 'Az archiválás nem sikerült'),
+      onVisszaallit: (id) => muvelet(() => visszaallitErtesitestAction(id), 'A visszaállítás nem sikerült'),
+      onJovahagy: (adminRequestId) =>
+        indit(async () => {
+          const r = await approveAdminAccess(adminRequestId)
+          if ('error' in r && r.error) {
+            toast.error(r.error)
+            return
+          }
+          toast.success('Hozzáférés jóváhagyva.')
+          if ('warning' in r && r.warning) toast.warning(r.warning)
+          await ujratolt()
+        }),
+      onElutasit: (adminRequestId) =>
+        indit(async () => {
+          const r = await denyAdminAccess(adminRequestId)
+          if ('error' in r && r.error) {
+            toast.error(r.error)
+            return
+          }
+          toast.success('Hozzáférés elutasítva.')
+          if ('warning' in r && r.warning) toast.warning(r.warning)
+          await ujratolt()
+        }),
+    }),
+    [onLathato, muvelet, ujratolt, indit],
+  )
 
-  const szurt = useMemo(() => {
-    return sorok.filter((s) => {
-      if (archivum !== s.archived) return false
-      // ⚠️ 2026-08-11 JAVÍTÁS — AZ ÜZENET ELTŰNT A KEZE ALÓL.
-      //    A `megnyit()` a kibontással EGYIDEJŰLEG olvasottnak jelöl, a `muvelet()`
-      //    pedig utána újraolvassa a listát a szerverről. A friss soron
-      //    `olvasva: true`, ezért a „Csak olvasatlan" szűrő kidobta azt a
-      //    kártyát, amit a lelkész ÉPP MOST nyitott ki — még mielőtt elolvasta
-      //    volna. Szó szerint ugyanaz a panasz, amit a tulajdonos bejelentett:
-      //    „rákattintok, és nem történik semmi".
-      //    A NYITOTT sor ezért bent marad; csak becsukáskor vagy szűrőváltáskor
-      //    tűnik el.
-      if (csakOlvasatlan && s.olvasva && s.id !== nyitott) return false
-      if (csoport !== 'mind' && uzenetCsoportja(s) !== csoport) return false
-      return true
+  /** A szál összes olvasatlanja — soronként, hogy csak a SAJÁT sorok változzanak. */
+  const onSzalMindOlvasott = useCallback(() => {
+    if (!aktiv) return
+    const ids = aktiv.sorok.filter((s) => !s.olvasva && !s.archived).map((s) => s.id)
+    if (ids.length === 0) return
+    indit(async () => {
+      const eredmenyek = await Promise.all(ids.map((id) => jelolOlvasottnakAction(id)))
+      const hibasak = eredmenyek.filter((e) => !e.success)
+      if (hibasak.length > 0) {
+        toast.error(`${hibasak.length} üzenet jelölése nem sikerült: ${hibasak[0].error ?? 'ismeretlen hiba.'}`)
+      }
+      await ujratolt()
     })
-  }, [sorok, archivum, csakOlvasatlan, csoport, nyitott])
+  }, [aktiv, ujratolt, indit])
 
-  /** Idő-blokkok — a lelkész naptárban gondolkodik, nem órákban. */
-  const blokkok = useMemo(() => {
-    const map = new Map<IdoCsoport, UzenetSor[]>()
-    for (const s of szurt) {
-      const kulcs = idoCsoportja(bukarestiNapKulcs(new Date(s.createdAt)), maKulcs, tegnapKulcs)
-      const lista = map.get(kulcs)
-      if (lista) lista.push(s)
-      else map.set(kulcs, [s])
-    }
-    const sorrend: IdoCsoport[] = ['ma', 'tegnap', 'het', 'korabban']
-    return sorrend.filter((k) => map.has(k)).map((k) => ({ kulcs: k, sorok: map.get(k) ?? [] }))
-  }, [szurt, maKulcs, tegnapKulcs])
+  const onMindOlvasott = useCallback(
+    () => muvelet(jelolMindOlvasottnakAction, 'Az összes olvasottnak jelölése nem sikerült'),
+    [muvelet],
+  )
 
-  function megnyit(s: UzenetSor) {
-    const most = nyitott === s.id ? null : s.id
-    setNyitott(most)
-    // A megnyitás egyben elolvasás — de csak akkor írunk, ha tényleg változik.
-    if (most && !s.olvasva) muvelet(() => jelolOlvasottnakAction(s.id))
-  }
+  // ── Navigáció ────────────────────────────────────────────────────────────
+  const onValaszt = useCallback(
+    (kulcs: string) => allitUrl({ felado: kulcs, uzenet: null }, 'push'),
+    [allitUrl],
+  )
+  const onVissza = useCallback(() => allitUrl({ felado: null, uzenet: null }, 'replace'), [allitUrl])
+  const onSzuro = useCallback((szuro: SzalSzuro) => allitUrl({ szuro, archivum: szuro === 'archivalt', uzenet: null }, 'replace'), [allitUrl])
+  const onArchivumValt = useCallback(
+    () => onSzuro(allapot.szuro === 'archivalt' ? 'mind' : 'archivalt'),
+    [onSzuro, allapot.szuro],
+  )
 
   return (
     <div className="space-y-3">
-      {/* ── SZŰRŐSOR ──────────────────────────────────────────────────────── */}
-      <div className="card-raised space-y-3 p-3 sm:p-4">
-        {/* Csoport-választó. Vízszintesen görgethető: 375 px-en öt pirula nem fér ki. */}
-        <div
-          role="tablist"
-          aria-label="Üzenet-csoportok"
-          className="-mx-1 flex gap-2 overflow-x-auto px-1 pb-1"
-        >
-          {[{ id: 'mind' as const, cimke: 'Mind', szin: 'slate', leiras: 'Minden üzenet.' }, ...CSOPORTOK].map(
-            (cs) => {
-              const aktiv = csoport === cs.id
-              const darab =
-                cs.id === 'mind'
-                  ? sorok.filter((s) => s.archived === archivum).length
-                  : sorok.filter((s) => s.archived === archivum && uzenetCsoportja(s) === cs.id).length
-              return (
-                <button
-                  key={cs.id}
-                  type="button"
-                  role="tab"
-                  aria-selected={aktiv}
-                  title={cs.leiras}
-                  onClick={() => setCsoport(cs.id as SzuroCsoport)}
-                  className={cn(
-                    'inline-flex min-h-11 shrink-0 items-center gap-1.5 rounded-full border px-4 text-sm font-medium transition',
-                    'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50',
-                    aktiv
-                      ? 'border-primary/40 bg-primary/10 text-foreground'
-                      : 'border-border bg-background text-muted-foreground hover:bg-secondary/60',
-                  )}
-                >
-                  {cs.cimke}
-                  <span className="rounded-full bg-secondary px-1.5 text-[11px] font-semibold text-muted-foreground">
-                    {darab}
-                  </span>
-                </button>
-              )
-            },
-          )}
-        </div>
-
-        <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
-          <label className="flex min-h-11 cursor-pointer items-center gap-2 rounded-lg border border-input bg-background px-3 text-sm text-foreground">
-            <input
-              type="checkbox"
-              checked={csakOlvasatlan}
-              onChange={(e) => setCsakOlvasatlan(e.currentTarget.checked)}
-              className="size-4"
-              aria-label="Csak az olvasatlan üzenetek mutatása"
-            />
-            Csak olvasatlan ({olvasatlanSzam})
-          </label>
-
-          <label className="flex min-h-11 cursor-pointer items-center gap-2 rounded-lg border border-input bg-background px-3 text-sm text-foreground">
-            <input
-              type="checkbox"
-              checked={archivum}
-              onChange={(e) => {
-                setArchivum(e.currentTarget.checked)
-                setNyitott(null)
-              }}
-              className="size-4"
-              aria-label="Az archivált üzenetek mutatása"
-            />
-            Archívum ({archivaltSzam})
-          </label>
-
-          {olvasatlanSzam > 0 && !archivum ? (
-            <Button
-              type="button"
-              variant="outline"
-              disabled={fut}
-              onClick={() => muvelet(jelolMindOlvasottnakAction)}
-              className="min-h-11 gap-2"
-              aria-label="Minden üzenet olvasottnak jelölése"
-            >
-              <CheckCheck className="size-4" aria-hidden />
-              Összes olvasottnak
-            </Button>
-          ) : null}
-
-          {fut ? (
-            <span className="inline-flex min-h-11 items-center gap-2 text-sm text-muted-foreground">
-              <Loader2 className="size-4 animate-spin" aria-hidden />
-              Mentés…
-            </span>
-          ) : null}
-        </div>
-      </div>
-
       {hiba ? (
-        <p
-          role="status"
-          className="rounded-2xl border border-destructive/40 bg-destructive/10 p-3 text-sm leading-relaxed text-foreground"
-        >
+        <p role="alert" className="rounded-2xl border border-destructive/40 bg-destructive/10 p-3 text-sm leading-relaxed text-foreground">
           {hiba}
         </p>
       ) : null}
 
-      {/* ── LISTA ─────────────────────────────────────────────────────────── */}
-      {blokkok.length === 0 ? (
-        <UresAllapot archivum={archivum} szurt={csoport !== 'mind' || csakOlvasatlan} />
-      ) : (
-        blokkok.map((b) => (
-          <section key={b.kulcs} className="space-y-2">
-            <h2 className="px-1 pt-1 text-[11px] font-bold uppercase tracking-[0.18em] text-muted-foreground">
-              {IDO_CIMKEK[b.kulcs]}
-            </h2>
-            <ul className="space-y-2" role="list">
-              {b.sorok.map((s) => (
-                <li key={s.id}>
-                  <UzenetKartya
-                    sor={s}
-                    nyitva={nyitott === s.id}
-                    fut={fut}
-                    onValt={() => megnyit(s)}
-                    onArchival={() => muvelet(() => archivalErtesitestAction(s.id))}
-                    onVisszaallit={() => muvelet(() => visszaallitErtesitestAction(s.id))}
-                    onOlvasatlan={() => muvelet(() => jelolOlvasatlannakAction(s.id))}
-                  />
-                </li>
-              ))}
-            </ul>
-          </section>
-        ))
-      )}
+      <div className="gap-3 lg:grid lg:h-[calc(100dvh-9rem)] lg:min-h-[28rem] lg:grid-cols-[minmax(17rem,22rem)_minmax(0,1fr)]">
+        <BeszelgetesLista
+          beszelgetesek={lathato}
+          aktivKulcs={aktiv?.kulcs ?? null}
+          szuro={allapot.szuro}
+          kereses={kereses}
+          osszOlvasatlan={olvasatlanOssz}
+          fut={fut}
+          onValaszt={onValaszt}
+          onSzuro={onSzuro}
+          onKereses={setKereses}
+          onMindOlvasott={onMindOlvasott}
+          className={cn('max-lg:min-h-[20rem]', szalNyitva ? 'hidden lg:flex' : 'flex')}
+        />
+        <BeszelgetesSzal
+          beszelgetes={aktiv}
+          szuro={allapot.szuro}
+          kiemeltId={allapot.uzenet}
+          fut={fut}
+          muveletek={muveletek}
+          onMindOlvasott={onSzalMindOlvasott}
+          onArchivumValt={onArchivumValt}
+          onVissza={onVissza}
+          className={cn('max-lg:h-[calc(100dvh-7rem)] max-lg:min-h-[24rem]', szalNyitva ? 'flex' : 'hidden lg:flex')}
+        />
+      </div>
 
       {tobbVan ? (
         <p className="rounded-2xl border border-border bg-muted/40 p-3 text-xs leading-relaxed text-muted-foreground">
-          A legutóbbi 200 üzenetet mutatjuk. A régebbiek nem vesztek el — ha szükséged van rájuk,
-          szólj a rendszergazdának.
+          A legutóbbi 200 üzenetet mutatjuk. A régebbiek nem vesztek el — ha szükséged van rájuk, szólj a
+          rendszergazdának.
         </p>
       ) : null}
-    </div>
-  )
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// EGY ÜZENET
-// ─────────────────────────────────────────────────────────────────────────────
-
-function UzenetKartya({
-  sor,
-  nyitva,
-  fut,
-  onValt,
-  onArchival,
-  onVisszaallit,
-  onOlvasatlan,
-}: {
-  sor: UzenetSor
-  nyitva: boolean
-  fut: boolean
-  onValt: () => void
-  onArchival: () => void
-  onVisszaallit: () => void
-  onOlvasatlan: () => void
-}) {
-  const visual = getTypeVisual(sor.tipus)
-  const Ikon = visual.icon
-  const link = notificationLink(sor.hivatkozas)
-  const { torzs, teendo } = bontUzenet(sor.uzenet)
-
-  return (
-    <article
-      className={cn(
-        'overflow-hidden rounded-2xl border transition',
-        sor.olvasva ? 'border-border bg-card' : 'border-primary/30 bg-secondary/40',
-      )}
-    >
-      {/* FEJ — kattintható, 44 px fölött. `<button>`, hogy a billentyűzet is vigye. */}
-      <button
-        type="button"
-        onClick={onValt}
-        aria-expanded={nyitva}
-        className="flex w-full items-start gap-3 px-3 py-3 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 sm:px-4"
-      >
-        <span
-          className={cn(
-            'mt-0.5 flex size-10 shrink-0 items-center justify-center rounded-xl ring-1',
-            visual.chip,
-          )}
-        >
-          <Ikon className="size-5" aria-hidden />
-        </span>
-
-        <span className="min-w-0 flex-1">
-          <span className="flex items-start gap-2">
-            <span
-              className={cn(
-                'min-w-0 flex-1 text-sm leading-snug text-foreground',
-                sor.olvasva ? 'font-medium' : 'font-semibold',
-              )}
-            >
-              {sor.cim}
-            </span>
-            {!sor.olvasva && (
-              <span
-                aria-label="Olvasatlan"
-                className="mt-1.5 size-2 shrink-0 rounded-full bg-primary ring-2 ring-primary/20"
-              />
-            )}
-          </span>
-
-          {!nyitva && torzs ? (
-            <span className="mt-1 line-clamp-2 block text-xs leading-relaxed text-muted-foreground">
-              {torzs}
-            </span>
-          ) : null}
-
-          <span className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] text-muted-foreground">
-            <span
-              className={cn('inline-flex items-center rounded-full px-1.5 py-0.5 font-medium', visual.pill)}
-            >
-              {visual.label}
-            </span>
-            {sor.megoldva ? (
-              <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/12 px-1.5 py-0.5 font-medium text-emerald-700 dark:text-emerald-300">
-                <CheckCircle2 className="size-3" aria-hidden />
-                Megoldva
-              </span>
-            ) : null}
-            <span className="tabular-nums">{relativHuIdo(sor.createdAt)}</span>
-          </span>
-        </span>
-
-        <ChevronDown
-          className={cn(
-            'mt-2 size-4 shrink-0 text-muted-foreground transition-transform',
-            nyitva && 'rotate-180',
-          )}
-          aria-hidden
-        />
-      </button>
-
-      {/* KIBONTVA — MI TÖRTÉNT / MIKOR / KIT ÉRINT / MIT TEGYEK */}
-      {nyitva ? (
-        <div className="space-y-3 border-t border-border/70 px-3 pb-3 pt-3 sm:px-4">
-          {sor.megoldva ? (
-            <p className="flex items-start gap-2 rounded-xl border border-emerald-300 bg-emerald-50 px-3 py-2.5 text-sm leading-relaxed text-emerald-900 dark:border-emerald-900 dark:bg-emerald-950/30 dark:text-emerald-200">
-              <CheckCircle2 className="mt-0.5 size-4 shrink-0" aria-hidden />
-              <span className="min-w-0 flex-1">
-                <strong>Ez a baj azóta elmúlt.</strong>
-                {sor.megoldasUzenet ? ` ${sor.megoldasUzenet}` : ''}
-                {sor.megoldvaAt
-                  ? ` (${huIdopontBukarest(sor.megoldvaAt, 'short')} — ${BUKARESTI_ZONA_FELIRAT})`
-                  : ''}
-              </span>
-            </p>
-          ) : null}
-
-          {torzs ? (
-            <div className="rounded-xl border border-border/70 bg-background px-3 py-2.5">
-              <p className="whitespace-pre-wrap text-sm leading-relaxed text-foreground">{torzs}</p>
-            </div>
-          ) : null}
-
-          {teendo ? (
-            <div className="rounded-xl border border-primary/30 bg-primary/5 px-3 py-2.5">
-              <p className="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-[0.16em] text-muted-foreground">
-                <Wrench className="size-3.5" aria-hidden />
-                Mit tegyek?
-              </p>
-              <p className="mt-1 text-sm leading-relaxed text-foreground">{teendo}</p>
-            </div>
-          ) : null}
-
-          <dl className="grid gap-x-4 gap-y-1.5 text-xs text-muted-foreground sm:grid-cols-2">
-            <div className="flex items-start gap-1.5">
-              <Clock className="mt-0.5 size-3.5 shrink-0" aria-hidden />
-              <span>
-                <dt className="inline font-semibold text-foreground">Érkezett: </dt>
-                <dd className="inline">
-                  {huIdopontBukarest(sor.createdAt, 'long')} ({relativHuIdo(sor.createdAt)}) ·{' '}
-                  <span className="whitespace-nowrap">{BUKARESTI_ZONA_FELIRAT}</span>
-                </dd>
-              </span>
-            </div>
-            {sor.readAt ? (
-              <div className="flex items-start gap-1.5">
-                <MailOpen className="mt-0.5 size-3.5 shrink-0" aria-hidden />
-                <span>
-                  <dt className="inline font-semibold text-foreground">Olvasva: </dt>
-                  <dd className="inline">{huIdopontBukarest(sor.readAt, 'short')}</dd>
-                </span>
-              </div>
-            ) : null}
-            {sor.congregationNev ? (
-              <div className="flex items-start gap-1.5">
-                <Church className="mt-0.5 size-3.5 shrink-0" aria-hidden />
-                <span>
-                  <dt className="inline font-semibold text-foreground">Érintett gyülekezet: </dt>
-                  <dd className="inline">{sor.congregationNev}</dd>
-                </span>
-              </div>
-            ) : null}
-          </dl>
-
-          <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
-            {link ? (
-              link.external ? (
-                <a
-                  href={link.href}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="inline-flex min-h-11 items-center justify-center gap-1.5 rounded-xl bg-primary px-4 text-sm font-semibold text-primary-foreground transition hover:opacity-90"
-                >
-                  Megnyitás
-                  <ArrowUpRight className="size-4" aria-hidden />
-                </a>
-              ) : (
-                <Link
-                  href={link.href}
-                  className="inline-flex min-h-11 items-center justify-center gap-1.5 rounded-xl bg-primary px-4 text-sm font-semibold text-primary-foreground transition hover:opacity-90"
-                >
-                  Megnyitás
-                  <ArrowUpRight className="size-4" aria-hidden />
-                </Link>
-              )
-            ) : null}
-
-            {sor.archived ? (
-              <Button
-                type="button"
-                variant="outline"
-                disabled={fut}
-                onClick={onVisszaallit}
-                className="min-h-11 gap-2"
-                aria-label="Az üzenet visszahozása az archívumból"
-              >
-                <ArchiveRestore className="size-4" aria-hidden />
-                Vissza az archívumból
-              </Button>
-            ) : (
-              <>
-                {sor.olvasva ? (
-                  <Button
-                    type="button"
-                    variant="outline"
-                    disabled={fut}
-                    onClick={onOlvasatlan}
-                    className="min-h-11 gap-2"
-                    aria-label="Az üzenet megjelölése olvasatlanként"
-                  >
-                    <Inbox className="size-4" aria-hidden />
-                    Olvasatlanra
-                  </Button>
-                ) : null}
-                <Button
-                  type="button"
-                  variant="outline"
-                  disabled={fut}
-                  onClick={onArchival}
-                  className="min-h-11 gap-2"
-                  aria-label="Az üzenet archiválása"
-                >
-                  <Archive className="size-4" aria-hidden />
-                  Archiválás
-                </Button>
-              </>
-            )}
-          </div>
-
-          {/* ⚠️ AZ ARCHIVÁLÁS NEM TÖRLÉS — és ezt ki is mondjuk. Korábban a
-              felület ezt sugallta, mert nem volt út vissza. */}
-          <p className="text-[11px] leading-relaxed text-muted-foreground">
-            Az archiválás nem törlés: az üzenet átkerül az „Archívum" nézetbe, ahonnan bármikor
-            visszahozható.
-          </p>
-        </div>
-      ) : null}
-    </article>
-  )
-}
-
-function UresAllapot({ archivum, szurt }: { archivum: boolean; szurt: boolean }) {
-  return (
-    <div className="rounded-2xl border border-border/70 bg-secondary/40 px-6 py-12 text-center">
-      <div className="mx-auto flex size-14 items-center justify-center rounded-2xl bg-emerald-500/12 text-emerald-700 ring-1 ring-emerald-500/20 dark:text-emerald-300 dark:ring-emerald-400/25">
-        <CheckCircle2 className="size-6" aria-hidden />
-      </div>
-      <p className="mt-3.5 text-sm font-semibold text-foreground">
-        {archivum ? 'Az archívum üres' : szurt ? 'Ebben a szűrésben nincs üzenet' : 'Tiszta a postaláda'}
-      </p>
-      <p className="mx-auto mt-1 max-w-[22rem] text-xs leading-relaxed text-muted-foreground">
-        {archivum
-          ? 'Amit archiválsz, ide kerül — és innen bármikor visszahozható.'
-          : szurt
-            ? 'Próbáld a „Mind" csoportot, vagy vedd le a „Csak olvasatlan" szűrőt.'
-            : 'Ha új történik a gyülekezet körül, itt jelezzük. Az üzenetek innen nem tűnnek el maguktól.'}
-      </p>
     </div>
   )
 }

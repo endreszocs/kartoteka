@@ -25,6 +25,8 @@ import {
 } from '@/lib/auth/admin-scope'
 import { resolveBroadcastRecipients } from '@/lib/broadcasts/recipients'
 import { sendBroadcastEmail } from '@/lib/broadcasts/email'
+import { feladoMezok } from '@/lib/notifications/felado'
+import { insertErtesites, type UzenetFormat } from '@/lib/notifications/ertesites-insert'
 import { parseChangelog } from '@/lib/broadcasts/changelog-parser'
 import { loadChangelogJelolesek } from '@/lib/broadcasts/jelolesek'
 import {
@@ -92,9 +94,21 @@ type ChangelogBroadcastRow = {
 // Új broadcast küldése (kézi)
 // ---------------------------------------------------------------------------
 
+/**
+ * KÉZI körlevél — a törzs SIMA SZÖVEG ('text'): a felület escape-elve mutatja.
+ * A markdown-formátumot CSAK a hírlevél és a changelog-körlevél kapja (belső
+ * `kuldBroadcast` hívással) — egy élő POST-végpont nem dönthet a formátumról.
+ */
 export async function sendBroadcast(
   input: BroadcastComposeInput,
-): Promise<{ success?: boolean; error?: string; id?: string; recipientCount?: number }> {
+): Promise<{ success?: boolean; error?: string; id?: string; recipientCount?: number; warning?: string }> {
+  return kuldBroadcast(input, 'text')
+}
+
+async function kuldBroadcast(
+  input: BroadcastComposeInput,
+  uzenetFormat: UzenetFormat,
+): Promise<{ success?: boolean; error?: string; id?: string; recipientCount?: number; warning?: string }> {
   const access = await getEffectiveAccessContext()
   if (!access.user) return { error: 'Nincs bejelentkezve.' }
   if (!canManage(access)) return { error: 'Nincs jogosultsága broadcast üzenet küldésére.' }
@@ -143,19 +157,30 @@ export async function sendBroadcast(
     return { error: `Hiba a broadcast rögzítésekor: ${insErr?.message || 'ismeretlen'}` }
   }
 
-  // 3. ertesitesek-be bulk insert — minden címzettnek
+  // 3. ertesitesek-be bulk insert — minden címzettnek.
+  //    2026-09-05: a `release` típus MARAD `release` (eddig `info`-ra íródott,
+  //    így az „Újdonság" vizuál soha nem aktiválódott); a sor visszamutat a
+  //    körlevélre (`broadcast_id`), a feladó a küldő rendszergazda, a formátum
+  //    CSAK a hírlevél/changelog-ágon 'markdown'.
+  const feladoAdat = feladoMezok('rendszergazda', access.fullName, access.user.id)
   const notifRows = recipients.map((r) => ({
     user_id: r.id,
     cim,
     uzenet,
-    tipus: input.tipus === 'release' ? 'info' : input.tipus,
+    tipus: input.tipus,
     hivatkozas: input.hivatkozas || null,
     olvasva: false,
+    broadcast_id: inserted.id,
+    uzenet_format: uzenetFormat,
+    ...feladoAdat,
   }))
-  const { error: notifErr } = await supabase.from('ertesitesek').insert(notifRows)
-  if (notifErr) {
-    console.error('[sendBroadcast] ertesitesek insert hiba:', notifErr.message)
-    // Nem return — a broadcast rekord már megvan, legalább láthatja az admin
+  const ertesites = await insertErtesites(supabase, notifRows, { forras: 'broadcast' })
+  let warning: string | undefined
+  if (ertesites.error) {
+    console.error('[sendBroadcast] ertesitesek insert hiba:', ertesites.error)
+    // Nem return — a broadcast rekord már megvan, legalább láthatja az admin;
+    // de a hívó MEGKAPJA, hogy a címzettek csengőjébe nem került be.
+    warning = `A körlevél rögzült, de a címzettek csengő-értesítése nem jött létre: ${ertesites.error}`
   }
 
   // 4. Email küldés (ha kért) — hiba csendesen kezelve
@@ -184,7 +209,7 @@ export async function sendBroadcast(
   revalidatePath('/admin')
   revalidatePath('/', 'layout')
 
-  return { success: true, id: inserted.id, recipientCount: recipients.length }
+  return { success: true, id: inserted.id, recipientCount: recipients.length, warning }
 }
 
 // ---------------------------------------------------------------------------
@@ -289,7 +314,8 @@ export async function sendNewsletter(args: NewsletterInput): Promise<{
   const title = args.headerTitle?.trim() || 'Kartotéka — Fejlesztési hírlevél'
   const summaryMd = buildSummaryMarkdown(sorted, args.introText)
 
-  const mainResult = await sendBroadcast({
+  // A hírlevél törzse markdown → a csengő/oldal a szerveren rendereli.
+  const mainResult = await kuldBroadcast({
     cim: title,
     uzenet: summaryMd,
     tipus: 'release',
@@ -303,7 +329,7 @@ export async function sendNewsletter(args: NewsletterInput): Promise<{
     releaseVersion: primary.version,
     releaseCategory: primary.category,
     releaseChangelogKey: primary.key,
-  })
+  }, 'markdown')
   if ('error' in mainResult && mainResult.error) return { error: mainResult.error }
 
   // 2) A többi kulcsot marker-ként rögzítjük, hogy ne lehessen újraküldeni
@@ -532,7 +558,8 @@ export async function sendChangelogBroadcast(args: {
     isResend = true
   }
 
-  const result = await sendBroadcast({
+  // A changelog-bejegyzés törzse markdown → a csengő/oldal a szerveren rendereli.
+  const result = await kuldBroadcast({
     cim: entry.title,
     uzenet: entry.bodyMarkdown,
     tipus: 'release',
@@ -546,7 +573,7 @@ export async function sendChangelogBroadcast(args: {
     releaseVersion: entry.version,
     releaseCategory: entry.category as ReleaseCategory | null,
     releaseChangelogKey: entry.key,
-  })
+  }, 'markdown')
 
   return { ...result, resent: isResend }
 }

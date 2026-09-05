@@ -3,6 +3,8 @@ import 'server-only'
 import type { SupabaseClient } from '@supabase/supabase-js'
 
 import { createClient } from '@/lib/supabase/server'
+import { feladoMezok } from '@/lib/notifications/felado'
+import { insertErtesites } from '@/lib/notifications/ertesites-insert'
 import {
   ROLE_LABELS,
   SCOPE_LABELS,
@@ -167,15 +169,40 @@ export async function activateAccountOnRoleAssign(
       roleLine +
       profileSwitchLine
 
-    await supabase.from('ertesitesek').insert({
-      user_id: profileId,
-      tipus: 'success',
-      cim: 'Üdvözöljük a Kartotékában! 🎉',
-      uzenet,
-      olvasva: false,
-    })
-  } catch {
-    // ertesitesek best-effort — a fő aktiválás sikeres
+    // A feladó a kiosztó rendszergazda (a hívó kliens felhasználója) — best-effort:
+    // ha nem oldható fel, a „Rendszergazda" címke marad, azonosító nélkül.
+    let admin: { id: string; nev: string | null } | null = null
+    try {
+      const {
+        data: { user: kioszto },
+      } = await supabase.auth.getUser()
+      if (kioszto?.id) {
+        const { data: adminProfil } = await supabase
+          .from('profiles')
+          .select('full_name')
+          .eq('id', kioszto.id)
+          .maybeSingle()
+        admin = { id: kioszto.id, nev: (adminProfil?.full_name as string | null) ?? null }
+      }
+    } catch {
+      // A feladó neve nem kritikus.
+    }
+
+    await insertErtesites(
+      supabase,
+      {
+        user_id: profileId,
+        tipus: 'success',
+        cim: 'Üdvözöljük a Kartotékában! 🎉',
+        uzenet,
+        olvasva: false,
+        ...feladoMezok('rendszergazda', admin?.nev ?? null, admin?.id ?? null),
+      },
+      { forras: 'aktivalas-szerepkorrel' },
+    )
+  } catch (e) {
+    // A fő aktiválás sikeres — de a hallgatás tilos.
+    console.warn('[activate-on-role-assign] az üdvözlő értesítés nem ment ki:', e instanceof Error ? e.message : e)
   }
 
   return { activated: true, previousStatus: result.previous_status, setFields }

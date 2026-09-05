@@ -26,6 +26,7 @@ import { dbSelect } from './local-db'
 import { getDesktopSupabase } from './supabase'
 import { getTauriSqliteBackend } from './tauri-sqlite-backend'
 import { getVerifiedSession } from './verified-session'
+import { FutoOr, withSyncTimeout } from './write-sync-registry'
 
 const MAX_ATTEMPTS = 5
 
@@ -161,7 +162,8 @@ export async function pushPendingKiadas(
 
   let mutations: Awaited<ReturnType<typeof backend.getPendingMutations>>
   try {
-    mutations = await backend.getPendingMutations(50)
+    // desk-sync-8: tábla-szűrő az SQL-ben — az 50-es ablak ne éheztesse ki ezt a sort.
+    mutations = await backend.getPendingMutations(50, 'kiadas')
   } catch (err) {
     result.errors.push(
       `Outbox olvasási hiba: ${err instanceof Error ? err.message : 'ismeretlen'}`,
@@ -434,11 +436,14 @@ function pushErrorDedup(list: string[], msg: string): void {
 //  Auto-trigger háttér-pusher
 // ─────────────────────────────────────────────────────────────────────────
 
-let pusherInterval: ReturnType<typeof setInterval> | null = null
-let onlineListenerAttached = false
 let lastRunAt: string | null = null
-let inFlight = false
 let lastResult: KiadasPushResult | null = null
+/**
+ * A futó push őre — a TÉNYLEGES befejezésig tart, nem az időkorlátig (bíráló
+ * P1, 2026-09-05). A kiadást az xkey-kapu védi a duplától, de a párhuzamos
+ * második kör ugyanazokat a sorokat hiába küldte volna újra. Ld. `FutoOr`.
+ */
+const futoOr = new FutoOr<KiadasPushResult>()
 
 export interface KiadasSyncStatus {
   running: boolean
@@ -447,63 +452,54 @@ export interface KiadasSyncStatus {
 }
 
 export function getKiadasSyncStatus(): KiadasSyncStatus {
-  return { running: inFlight, lastRunAt, lastResult }
+  return { running: futoOr.fut, lastRunAt, lastResult }
 }
 
-async function runOnceGuarded(): Promise<void> {
-  if (inFlight) return
+/** Egy push indítása — vagy a már futó megosztása. Az eredmény-cache a VALÓDI végén frissül. */
+function inditPush(ignoreBackoff: boolean): Promise<KiadasPushResult> {
+  return futoOr.futtat(
+    () => pushPendingKiadas(getDesktopSupabase(), ignoreBackoff),
+    (r) => {
+      lastResult = r
+      lastRunAt = new Date().toISOString()
+    },
+  )
+}
+
+/**
+ * Egy őrzött kör: saját visszalépéssel, 30 mp-es időkorláttal. Sosem dob.
+ * 2026-09-05: EXPORTÁLT — a `write-sync-registry` pollja hívja; a saját
+ * `online` listener + interval innen kikerült (egy triggerkészlet).
+ */
+export async function runKiadasSyncGuarded(): Promise<void> {
+  if (futoOr.fut) return
   if (typeof navigator !== 'undefined' && !navigator.onLine) return
-  inFlight = true
   try {
-    lastResult = await pushPendingKiadas()
-    lastRunAt = new Date().toISOString()
-  } finally {
-    inFlight = false
+    await withSyncTimeout(inditPush(false), 'Kiadás-szinkron')
+  } catch (err) {
+    // Időtúllépés VAGY hiba: a push a háttérben az őr alatt fut tovább —
+    // a következő kör NEM indít újat.
+    const msg = err instanceof Error ? err.message : String(err)
+    console.warn('[kiadas-write-sync] a háttér-kör hibára futott:', msg)
+    lastResult = { attempted: 0, succeeded: 0, retrying: 0, conflicts: 0, errors: [msg] }
   }
 }
 
+/**
+ * Kompatibilitási belépő: egyetlen azonnali őrzött kör. A triggerkészlet a
+ * `write-sync-registry`-ben él — itt NINCS listener és NINCS interval.
+ */
 export function startKiadasAutoSync(): void {
   if (typeof window === 'undefined') return
-
-  if (!onlineListenerAttached) {
-    window.addEventListener('online', () => {
-      void runOnceGuarded()
-    })
-    onlineListenerAttached = true
-  }
-
-  if (!pusherInterval) {
-    pusherInterval = setInterval(() => {
-      void runOnceGuarded()
-    }, 30_000)
-  }
-
-  void runOnceGuarded()
+  void runKiadasSyncGuarded()
 }
 
+/**
+ * Manuális push (a visszalépést ignorálja). Ha már fut egy kör (időtúllépés
+ * után is), NEM indít újat — ugyanazt várja meg, időkorláttal.
+ */
 export async function runKiadasSyncManually(): Promise<KiadasPushResult> {
-  if (inFlight) {
-    while (inFlight) {
-      await new Promise((r) => setTimeout(r, 100))
-    }
-    return (
-      lastResult ?? {
-        attempted: 0,
-        succeeded: 0,
-        retrying: 0,
-        conflicts: 0,
-        errors: [],
-      }
-    )
-  }
-  inFlight = true
-  try {
-    lastResult = await pushPendingKiadas(getDesktopSupabase(), true)
-    lastRunAt = new Date().toISOString()
-    return lastResult
-  } finally {
-    inFlight = false
-  }
+  return withSyncTimeout(inditPush(true), 'Kiadás-szinkron')
 }
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -606,7 +602,10 @@ export async function resolveKiadasConflict(
       createdAt: new Date().toISOString(),
     })
 
-    void runKiadasSyncManually()
+    // Az időtúllépés / hiba nem néma (konzol), de a hívót nem buktatja el.
+    runKiadasSyncManually().catch((err: unknown) => {
+      console.warn('[kiadas-write-sync] a mentés utáni háttér-push jelzett:', err instanceof Error ? err.message : String(err))
+    })
 
     return { success: true, action: 'reassign', newSzam: claim.szam }
   } catch (err) {

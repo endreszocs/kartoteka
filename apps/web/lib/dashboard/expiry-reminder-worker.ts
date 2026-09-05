@@ -27,6 +27,8 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import { selectAllPaged } from '@kartoteka/supabase-client'
 
 import { getSupabaseAdminClient } from '@/lib/supabase/admin-client'
+import { feladoMezok } from '@/lib/notifications/felado'
+import { insertErtesites } from '@/lib/notifications/ertesites-insert'
 import { getCongregationOfficials } from '@/lib/profiles/officials'
 import { collectExpiryRadar, EXPIRY_SOON_DAYS, type ExpiryItem } from './expiry-radar'
 
@@ -170,10 +172,12 @@ export async function runExpiryReminderWorker(
         uzenet,
         tipus: urgent.some((i) => i.bucket === 'lejart') ? 'warning' : 'info',
         hivatkozas,
+        // Gépi emlékeztető (service_role) — a feladó a rendszer.
+        ...feladoMezok('rendszer'),
       }))
 
-      const { error: insertError } = await supabase.from('ertesitesek').insert(rows)
-      if (insertError) throw new Error(`értesítés beszúrása sikertelen: ${insertError.message}`)
+      const beszuras = await insertErtesites(supabase, rows, { forras: 'lejarat-emlekezteto' })
+      if (beszuras.error) throw new Error(`értesítés beszúrása sikertelen: ${beszuras.error}`)
 
       result.notified += 1
     } catch (error: unknown) {
