@@ -55,8 +55,10 @@ Utána: ellenőrzés-ügynök (typecheck/lint/selftest + javítás) → 5 bírá
 - [x] Kör-commit `ca7dc847` → merge `origin/main` (v0.9.229: #232 docs, #233 betöltés-jelző, #234 GYIK-súgó; 2 ütközés feloldva: lánc +
       CHANGELOG) → merge-commit `2b343d7c` → push → **PR #235: https://github.com/endreszocs/kartoteka/pull/235** — Endre engedélyére vár
       a merge (a main-re push blokkolt). Squash után a következő kör előtt `git reset --hard origin/main`.
-- [ ] Asztali build 0.9.14: a p3 fából (`2b343d7c`) INDÍTVA (`ops/release-build.ps1 -Version 0.9.14 -SkipUpload`, napló a scratchpadban:
-      `release-0.9.14.log`); a feltöltés az updater-bucketbe KÜLÖN igen-re (érdemes a PR merge-e után)
+- [x] Asztali build 0.9.14 **ELKÉSZÜLT** a p3 fából (`2b343d7c`): `C:\kartoteka-target\release\bundle\nsis\Kartotéka_0.9.14_x64-setup.exe`
+      (30,15 MB) + `.sig`, `msi\Kartotéka_0.9.14_x64_hu-HU.msi` + `.sig`, `nsis\latest.json` (0.9.14) — aláírva (Authenticode EREK +
+      Ed25519 updater). **FELTÖLTÉS NEM történt** (`-SkipUpload`) — Endre igenére, a PR #235 merge-e UTÁN:
+      `ops/release-build.ps1 -Version 0.9.14 -Notes '…'` (feltöltéssel) a p3 fából
 
 ## 3. HONNAN FOLYTASD, ha félbeszakadt
 
