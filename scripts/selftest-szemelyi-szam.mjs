@@ -175,11 +175,40 @@ else fail(`a cnp mező címkéje: „${cnpMezoCimke(ENDRE_ERTEKE)}"`)
   else fail(`külföldi azonosító elutasítva: ${JSON.stringify(e)}`)
 }
 
-// 11. A rövid, csupa számjegyű bemenet HANGOS hiba — ez elgépelés.
+// 11. A NEM 13 JEGYŰ, csupa számjegyű azonosítót ELFOGADJUK — de kimondjuk,
+//     hogy nem ellenőriztük. A korábbi változat HANGOS HIBÁVAL utasította el,
+//     ami a magyar (11 jegy), a bolgár EGN (10) és az ukrán (10) azonosítót is
+//     „elgépelted a CNP-t"-ként dobta vissza. A rendszer nem csak romániai
+//     tagokat tart nyilván.
 {
-  const e = ellenorizSzemelyiSzam('123456')
-  if (!e.rendben && /13 számjegy/.test(e.hiba || '')) ok('a rövid, csupa számjegyű bemenet hangos hibát ad')
-  else fail(`rövid szám: ${JSON.stringify(e)}`)
+  const magyar = ellenorizSzemelyiSzam('12345678901')
+  if (magyar.rendben && !magyar.romanCnp && magyar.figyelmeztetes) {
+    ok('a 11 jegyű (magyar) azonosító menthető, de jelezzük, hogy nem ellenőriztük')
+  } else fail(`11 jegyű azonosító: ${JSON.stringify(magyar)}`)
+}
+
+// 11b. A perjeles (cseh/szlovák) írásképet NEM csonkoljuk el.
+{
+  const e = ellenorizSzemelyiSzam('760319/0000')
+  if (e.rendben && e.tisztitott === '760319/0000') ok('a perjeles hivatalos íráskép megmarad')
+  else fail(`perjeles azonosító: ${JSON.stringify(e)}`)
+}
+
+// 11c. A TESZT-GYÜLEKEZET seedje (EC-TSZT-…) is egyházi azonosító. Élesben 48
+//      ilyen sor van; a korábbi minta négy SZÁMJEGYET várt az EC- után, ezért
+//      mind a 48 tag „személyes adatnak tűnő érték" címkét kapott.
+{
+  const alakok = ['EC-TSZT-01F', 'EC-TSZT-15C3', 'EC-TSZT2-L01']
+  const rosszak = alakok.filter((a) => azonositoFajta(a) !== 'egyhazi')
+  if (rosszak.length === 0) ok('a teszt-gyülekezet EC-TSZT-… kódjait is felismerjük')
+  else fail(`nem ismertük fel egyházi azonosítóként: ${rosszak.join(', ')}`)
+}
+
+// 11d. A VALÓDI CNP kapuja: erre épül a szemely.cnp mentési tiltása.
+{
+  if (mod.valodiCnpGyanus(VALODI_CNP) && !mod.valodiCnpGyanus('EC-2026-999YQWMWU7') && !mod.valodiCnpGyanus('9991234567')) {
+    ok('a valódiCnpGyanus kapu pontosan a valódi CNP-re illeszkedik')
+  } else fail('a valodiCnpGyanus kapu téves — vagy átenged valódi CNP-t, vagy generált kódot tilt')
 }
 
 // 12. A formázás (szóköz, kötőjel) nem akadály — a tárolt érték tiszta.
@@ -279,8 +308,22 @@ if (/label=\{cnpMezoCimke\(member\.cnp\)\}/.test(kartonKod)) ok('a kartonon a cn
 else fail('a kartonon a cnp továbbra is „Személyi szám (CNP)" fix címkét kap')
 
 // 27. A hivatalos szám KÜLÖN mezőként jelenik meg.
-if (/<SzemelyiSzamMezo szemelyId=\{member\.id\}/.test(kartonKod)) ok('a hivatalos szám külön mezőként jelenik meg')
+if (/<SzemelyiSzamMezo[^>]*szemelyId=\{member\.id\}/.test(kartonKod)) ok('a hivatalos szám külön mezőként jelenik meg')
 else fail('a hivatalos szám nem jelenik meg a kartonon')
+
+// 27b. ⛔ ADATVÉDELMI ŐR: a karton NEM remountol személyváltáskor (a host
+//      `key` nélkül rendereli a dialógust). `key` nélkül a felfedett érték és
+//      a „már naplóztam" jelző ÁTÖRÖKLŐDNE a KÖVETKEZŐ személyre — annak
+//      azonosítója azonnal csupaszon látszana, naplóbejegyzés nélkül.
+{
+  const kulcsosak = [
+    { nev: 'CnpRejtett', minta: /<CnpRejtett[^>]*key=\{member\.id\}/ },
+    { nev: 'SzemelyiSzamMezo', minta: /<SzemelyiSzamMezo[^>]*key=\{member\.id\}/ },
+  ]
+  const hianyzo = kulcsosak.filter((k) => !k.minta.test(kartonKod)).map((k) => k.nev)
+  if (hianyzo.length === 0) ok('mindkét azonosító-mező személyenként remountol (key)')
+  else fail(`key nélküli mező — az előző személy értéke átöröklődne: ${hianyzo.join(', ')}`)
+}
 
 // 28. Az érték-függő maszkolás a kartonon is érvényes.
 if (/cnpMaszkolando\(member\.cnp\)/.test(kartonKod)) ok('a kartonon a maszkolás érték-függő')
@@ -337,6 +380,105 @@ if (/UUID_MINTA/.test(auditKod) && /target_ref/.test(auditKod)) {
     ok('a visszaesési ág is a szétválasztott értékeket küldi')
   } else fail('a visszaesési ág a nyers targetId-t küldi — ott újra elveszne az audit')
 }
+
+// ── (F2) A MÁSODIK KÖR VÉDELMEI (adversariális felülvizsgálat után) ─────────
+// A PR #229 friss kódjában nyolc hiba volt; ezek az asszertek azokat őrzik.
+
+// 36. HATÓKÖR: EGY igazságforrás. A kapu az EFFEKTÍV gyülekezettel dolgozott,
+//     a DB-policy a PROFIL-skalárral — ahol a kettő eltért (admin-belépés,
+//     szerepkör-váltás), a kapu átengedett, a policy 0 sort adott, és a mező
+//     azt írta: „nincs rögzítve". Néma hazugság.
+if (/profileCongregationId/.test(actionsKod) && /profileCongregationId !== congregationId/.test(actionsKod)) {
+  ok('a kapu MÉRI a hatókör-eltérést, és kimondja')
+} else fail('a kapu nem méri a profil ⇄ effektív gyülekezet eltérést — a mező némán „nincs rögzítve"-t írna')
+
+// 37. Az RLS-elutasításból ne jusson nyers angol Postgres-szöveg a lelkészhez.
+if (/rlsElutasitas/.test(actionsKod) && /42501/.test(actionsKod)) ok('az RLS-elutasítás magyar üzenetet kap')
+else fail('az RLS-elutasítás nyers 42501-es szövegként jutna ki')
+
+// 38. ⛔ A TÖRLÉS NE LEGYEN NÉMA SIKER 0 SORNÁL. `.select()` nélkül a Supabase
+//     nem hibázik, ha semmit nem érintett — a kód „törölve"-t jelentett volna,
+//     és HAMIS audit-bejegyzést írt volna egy meg nem történt törlésről.
+{
+  const torles = actionsKod.match(/if \(!e\.tisztitott\)[\s\S]*?\n  \}/)
+  if (torles && /\.select\('id_szemely'\)/.test(torles[0]) && /torolt\.length === 0/.test(torles[0])) {
+    ok('a törlés ellenőrzi az érintett sorokat (nincs néma siker)')
+  } else fail('a törlés `.select()` nélkül fut — 0 érintett sornál „sikeres törlést" jelentene')
+}
+
+// 39. Ugyanez az írásra.
+if (/mentett\.length === 0/.test(actionsKod)) ok('a mentés ellenőrzi az érintett sorokat')
+else fail('a mentés néma 0-soros írásnál is sikert jelentene')
+
+// 40. ⛔ FAIL-CLOSED FELFEDÉS: naplózatlanul NEM adjuk ki az értéket. A súgó azt
+//     ígéri, hogy „minden megjelenítés naplózódik" — a `logAuditEvent` viszont
+//     minden hibát elnyelt, tehát az ígéret csendben hamissá válhatott.
+{
+  const felfed = actionsKod.match(/export async function getSzemelyiSzam[\s\S]*?\n}/)
+  if (felfed && /const naplozva = await logAuditEvent/.test(felfed[0]) && /if \(!naplozva\)/.test(felfed[0])) {
+    ok('a felfedés fail-closed: napló nélkül nincs érték')
+  } else fail('a felfedés naplózatlanul is kiadná a számot — a GDPR-ígéret üres lenne')
+}
+
+// 41. A `logAuditEvent` MEGMONDJA, sikerült-e — enélkül a 40. asszert nem is
+//     volna teljesíthető.
+if (/Promise<boolean>/.test(auditKod)) ok('a logAuditEvent jelzi, ha nem sikerült írnia')
+else fail('a logAuditEvent továbbra is Promise<void> — a hívó nem tudhatja, írt-e')
+
+// 42. ⛔ FELFEDÉS-VERSENY: kérés-token nélkül „A" hivatalos száma megjelenhetne
+//     „B" kartonján (a karton nem remountol, a kérés meg úton van).
+{
+  const mezo = kodCsak(olvas(MEZO))
+  const felfed = mezo.match(/async function felfed\(\)[\s\S]*?\n  \}/)
+  if (felfed && /const token = \+\+kerelemRef\.current/.test(felfed[0]) && /kerelemRef\.current !== token/.test(felfed[0])) {
+    ok('a felfedésnek van kérés-tokenje (nem keveredhet két személy száma)')
+  } else fail('a felfedésnek NINCS kérés-tokenje — „A" száma megjelenhet „B" neve alatt')
+}
+
+// 43. A FORRÁS-ÚT LEZÁRÁSA: valódi CNP nem kerülhet az egyházi azonosítóba.
+{
+  const tagActions = olvas(path.join(REPO, 'apps', 'web', 'app', '(dashboard)', 'tagnyilvantartas', 'actions.ts'))
+  const kod = kodCsak(tagActions)
+  const helyek = (kod.match(/valodiCnpGyanus\(/g) || []).length
+  if (helyek >= 2) ok('a tag-mentés MINDKÉT ágán (INSERT + UPDATE) tiltja a valódi CNP-t')
+  else fail(`a valódi CNP tiltása csak ${helyek} helyen van — az INSERT és az UPDATE ág is kell`)
+}
+
+// 44. Az Excel-visszaírás NEM módosíthatja az egyházi azonosítót (a szülő-FK-n
+//     ON UPDATE CASCADE van: egy átírt cella némán átkulcsolná a gyermekek
+//     szülő-hivatkozását, a gyülekezet-határon is átnyúlva).
+{
+  const excelKod = kodCsak(excel)
+  const diff = kodCsak(olvas(path.join(REPO, 'apps', 'web', 'lib', 'offline', 'excel-import-diff.ts')))
+  const review = kodCsak(olvas(path.join(REPO, 'apps', 'web', 'components', 'offline', 'excel-import-review.tsx')))
+  const jo =
+    /technical: 'cnp'[^}]*csakOlvashato: true/.test(excelKod) &&
+    /field\.csakOlvashato/.test(diff) &&
+    /csakOlvashatoNelkul\(/.test(review)
+  if (jo) ok('az Excel-körút nem írhatja vissza az egyházi azonosítót')
+  else fail('az Excelben átírt azonosító visszamenne a szerverre — néma szülő-átkulcsolás')
+}
+
+// 45. Az ADATEXPORT allowlist: ami nincs benne, az némán kimarad a „teljes"
+//     csomagból — pedig az érintettnek joga van hozzá.
+{
+  const exportTerv = olvas(path.join(REPO, 'apps', 'web', 'lib', 'export', 'gyulekezeti-export.ts'))
+  if (/kozvetlen\('szemely_szemelyi_szam'/.test(exportTerv)) ok('a hivatalos szám benne van az adatexport tervében')
+  else fail('a hivatalos szám kimaradna az adatexportból — jogi kitettség')
+}
+
+// 46. A zod-plafon az ÉLŐ oszlophoz igazodik (varchar(20)), különben 21-40
+//     karakternél nyers 22001 jut a lelkészhez.
+{
+  const val = olvas(path.join(REPO, 'apps', 'web', 'lib', 'validations', 'members.ts'))
+  if (/cnp: z\.string\(\)\.trim\(\)\.max\(20/.test(val)) ok('az egyházi azonosító hossz-plafonja az élő oszlophoz igazodik (20)')
+  else fail('a zod-plafon nem 20 — az élő oszlop varchar(20), a különbség nyers 22001-et ad')
+}
+
+// 47. A migráció indoklása a MÉRT tényeket írja le (nem a séma-dumpból vett
+//     téves NO ACTION-t).
+if (/UPDATE: CASCADE/.test(migracio) && /HELYESBÍTÉS/.test(migracio)) ok('a migráció a mért FK-viselkedést rögzíti')
+else fail('a migráció indoklása nem tartalmazza a mért FK-viselkedést')
 
 // ── (G) MUTÁNSOK — a hibás világ visszajátszása ──────────────────────────────
 // M1: a fail-safe irány megfordítása (ismeretlen alak → egyházi) → a 4.
@@ -403,6 +545,52 @@ if (/UUID_MINTA/.test(auditKod) && /target_ref/.test(auditKod)) {
   const mutans = auditKod.replace(/UUID_MINTA/g, 'MAS_NEV').replace(/target_ref/g, 'valami')
   if (!/UUID_MINTA/.test(mutans) || !/target_ref/.test(mutans)) ok('M6 mutáns: audit-javítás nélkül → az őr buktatná')
   else fail('M6 mutáns TÚLÉLTE — a 34. asszert vak')
+}
+
+// M7: a hatókör-eltérés mérésének kivétele → a 36. asszertnek buknia kell.
+{
+  const mutans = actionsKod.replace(/profileCongregationId !== congregationId/g, 'false')
+  if (!/profileCongregationId !== congregationId/.test(mutans)) ok('M7 mutáns: hatókör-eltérés mérése nélkül → az őr buktatná')
+  else fail('M7 mutáns TÚLÉLTE — a 36. asszert vak')
+}
+
+// M8: a törlés `.select()`-jének kivétele → a 38. asszertnek buknia kell.
+{
+  const mutans = actionsKod.replace(/\.select\('id_szemely'\)/g, '')
+  const torles = mutans.match(/if \(!e\.tisztitott\)[\s\S]*?\n  \}/)
+  if (!torles || !/\.select\('id_szemely'\)/.test(torles[0])) ok('M8 mutáns: ellenőrizetlen törlés → az őr buktatná')
+  else fail('M8 mutáns TÚLÉLTE — a 38. asszert vak')
+}
+
+// M9: a fail-closed felfedés visszavonása → a 40. asszertnek buknia kell.
+{
+  const mutans = actionsKod.replace(/if \(!naplozva\)/g, 'if (false)')
+  const felfed = mutans.match(/export async function getSzemelyiSzam[\s\S]*?\n}/)
+  if (!felfed || !/if \(!naplozva\)/.test(felfed[0])) ok('M9 mutáns: naplózatlanul is kiadná → az őr buktatná')
+  else fail('M9 mutáns TÚLÉLTE — a 40. asszert vak')
+}
+
+// M10: a felfedés kérés-tokenjének kivétele → a 42. asszertnek buknia kell.
+{
+  const mezo = kodCsak(olvas(MEZO)).replace(/const token = \+\+kerelemRef\.current\n/g, '')
+  const felfed = mezo.match(/async function felfed\(\)[\s\S]*?\n  \}/)
+  if (!felfed || !/const token = \+\+kerelemRef\.current/.test(felfed[0])) {
+    ok('M10 mutáns: token nélküli felfedés → az őr buktatná')
+  } else fail('M10 mutáns TÚLÉLTE — a 42. asszert vak')
+}
+
+// M11: a `key` elvétele → a 27b. asszertnek buknia kell.
+{
+  const mutans = kartonKod.replace(/<SzemelyiSzamMezo key=\{member\.id\}/g, '<SzemelyiSzamMezo')
+  if (!/<SzemelyiSzamMezo[^>]*key=\{member\.id\}/.test(mutans)) ok('M11 mutáns: key nélküli mező → az őr buktatná')
+  else fail('M11 mutáns TÚLÉLTE — a 27b. asszert vak')
+}
+
+// M12: a csak-olvasható jelölés elvétele → a 44. asszertnek buknia kell.
+{
+  const mutans = kodCsak(excel).replace(/, csakOlvashato: true/g, '')
+  if (!/technical: 'cnp'[^}]*csakOlvashato: true/.test(mutans)) ok('M12 mutáns: visszaírható azonosító-oszlop → az őr buktatná')
+  else fail('M12 mutáns TÚLÉLTE — a 44. asszert vak')
 }
 
 if (failed) {

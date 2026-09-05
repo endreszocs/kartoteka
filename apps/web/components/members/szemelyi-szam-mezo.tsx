@@ -68,18 +68,25 @@ export function SzemelyiSzamMezo({ szemelyId, szerkesztheto = true }: { szemelyI
       setErtek(null)
       return
     }
+    // ⛔ KÉRÉS-TOKEN. Enélkül: „A" kartonján megnyomod a szem-ikont, a kérés
+    // útban van, közben átlépsz „B" kartonjára — és A HIVATALOS SZÁMA
+    // MEGJELENIK B NEVE ALATT. A naplóban csak A szerepel. A karton ugyanis
+    // nem remountol személyváltáskor, tehát ez a komponens életben marad.
+    const token = ++kerelemRef.current
     setTolt(true)
     try {
       const a = await getSzemelyiSzam(szemelyId)
+      if (kerelemRef.current !== token) return
       if (a.hiba) {
         toast.error(a.hiba)
         return
       }
       setErtek(a.ertek ?? '')
     } catch {
+      if (kerelemRef.current !== token) return
       toast.error('A személyi szám most nem tölthető be.')
     } finally {
-      setTolt(false)
+      if (kerelemRef.current === token) setTolt(false)
     }
   }
 
@@ -110,6 +117,8 @@ export function SzemelyiSzamMezo({ szemelyId, szerkesztheto = true }: { szemelyI
             ? 'A romániai CNP elmentve (az ellenőrző számjegye stimmel).'
             : 'A hivatalos személyi szám elmentve.',
       )
+      // Nem hiba, de nem is hallgatjuk el: az értéket nem tudtuk ellenőrizni.
+      if (res.figyelmeztetes) toast.warning(res.figyelmeztetes, { duration: 8000 })
       setSzerkeszt(false)
       setPiszkozat('')
       setErtek(null)

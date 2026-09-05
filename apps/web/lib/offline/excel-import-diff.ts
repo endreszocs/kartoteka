@@ -161,6 +161,11 @@ function computeFieldDiffs(
 ): FieldDiff[] {
   const diffs: FieldDiff[] = []
   for (const field of sheetDef.fields) {
+    // 2026-09-05: a CSAK OLVASHATÓ oszlopok (pl. az egyházi azonosító) nem
+    // kerülhetnek vissza. A `szemely.cnp` a szülő-kapcsolatok idegen kulcsa,
+    // ON UPDATE CASCADE-del — egy Excelben átírt cella némán átkulcsolná a
+    // gyermekek szülő-hivatkozását, a gyülekezet-határon is átnyúlva.
+    if (field.csakOlvashato) continue
     const excelVal = excel[field.technical]
     const dexieVal = dexie[field.technical]
     if (!valuesEqual(excelVal, dexieVal)) {

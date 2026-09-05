@@ -32,8 +32,21 @@
 
 import { validateRomanianCnp } from '@kartoteka/validations'
 
-/** Az SQL `generate_egyhazi_cnp()` alakja: EC-ÉÉÉÉ-XXXXXXXXXX. */
-const EC_ALAK = /^EC-\d{4}-[A-Z0-9]+$/i
+/**
+ * Az `EC-` előtagú, rendszer által generált egyházi azonosítók.
+ *
+ * ⚠️ A középső szegmens NEM csak évszám lehet. Az élő adatban két alak van:
+ *   · `EC-2026-XXXXXXXXXX` — a `generate_egyhazi_cnp()` (613 sor),
+ *   · `EC-TSZT-01F` / `EC-TSZT-15C3` — a teszt-gyülekezet seedje (48 sor,
+ *     `2026-08-09-teszt-gyulekezet-seed.sql`), és készen áll egy `EC-TSZT2-…`
+ *     variáns is (`2026-08-25-teszt-szervezeti-formak-seed.sql`).
+ * Az első változat CSAK négy SZÁMJEGYET fogadott el, ezért a 48 teszt-tag
+ * „személyes adatnak tűnő érték" címkét kapott és maszkolva jelent meg.
+ *
+ * Valódi személyi szám ebbe az alakba NEM fér bele: a CNP 13 SZÁMJEGY,
+ * előtag és kötőjel nélkül.
+ */
+const EC_ALAK = /^EC-[A-Z0-9]{1,10}-[A-Z0-9]+$/i
 /** A webes `generateCnp()` alakja: '999' + 7 számjegy. */
 const WEB_GENERALT_ALAK = /^999\d{7}$/
 /** Régi import-alak, a súgó is említi. */
@@ -90,6 +103,12 @@ export interface SzemelyiSzamEllenorzes {
    * ellenőrizni — az is menthető, csak nem állítjuk róla, hogy stimmel.
    */
   romanCnp: boolean
+  /**
+   * Nem hiba, csak jelzés: az érték menthető, de a rendszer nem tudta
+   * ellenőrizni (nem romániai CNP alakú). A felület KIMONDJA — a néma
+   * elfogadás azt sugallná, hogy stimmel.
+   */
+  figyelmeztetes?: string
 }
 
 /**
@@ -102,7 +121,10 @@ export interface SzemelyiSzamEllenorzes {
  * elgépelt CNP rosszabb, mint a hiányzó.
  */
 export function ellenorizSzemelyiSzam(nyers: string | null | undefined): SzemelyiSzamEllenorzes {
-  const tisztitott = (nyers ?? '').replace(/[\s.\-/]/g, '').trim()
+  // ⚠️ CSAK szóközt és kötőjelet távolítunk el. A PONTOT és a PERJELET NEM: a
+  // cseh/szlovák rodné číslo hivatalos írásképe perjeles (760319/0000), és a
+  // levágásuk elvenné az azonosító alakját.
+  const tisztitott = (nyers ?? '').replace(/[\s\-]/g, '').trim()
   if (!tisztitott) {
     return { rendben: true, tisztitott: '', hiba: null, romanCnp: false }
   }
@@ -129,15 +151,39 @@ export function ellenorizSzemelyiSzam(nyers: string | null | undefined): Szemely
     }
     return { rendben: true, tisztitott, hiba: null, romanCnp: true }
   }
-  if (/^\d{1,12}$/.test(tisztitott)) {
-    return {
-      rendben: false,
-      tisztitott,
-      hiba: `A romániai személyi szám (CNP) 13 számjegy — ez ${tisztitott.length}. Ha külföldi azonosítót írsz be, betűt is tartalmazhat.`,
-      romanCnp: false,
-    }
+  // ⛔ ITT KORÁBBAN MINDEN 1-12 JEGYŰ SZÁMOT ELUTASÍTOTTUNK. Hibás volt: a
+  // magyar személyazonosító jel 11 jegy, a bolgár EGN és az ukrán azonosító
+  // 10 — mindhármat „elgépelted a CNP-t"-ként dobtuk vissza, ráadásul azzal a
+  // tanáccsal, hogy „betűt is tartalmazhat", ami egy csupa számjegyű hivatalos
+  // azonosítónál értelmetlen. A rendszer nem csak romániai tagokat tart nyilván.
+  //
+  // Mostantól elfogadjuk — de NEM állítjuk róla, hogy ellenőriztük. A hívó a
+  // `figyelmeztetes` mezőből tudja, hogy csak a román alakot tudjuk vizsgálni.
+  return {
+    rendben: true,
+    tisztitott,
+    hiba: null,
+    romanCnp: false,
+    figyelmeztetes:
+      'Ez nem romániai CNP alakú (az 13 számjegy), ezért a rendszer nem tudta ellenőrizni. ' +
+      'Elmentve — de érdemes összevetni az okmánnyal.',
   }
-  return { rendben: true, tisztitott, hiba: null, romanCnp: false }
+}
+
+/**
+ * Valódi romániai személyi számnak látszik-e az érték?
+ *
+ * Ezt az EGYHÁZI azonosító (`szemely.cnp`) mentési útja használja: oda állami
+ * azonosító NEM kerülhet. A `cnp` oszlop értéke ugyanis a TELJES taglistával
+ * utazik, a `szemely` audit-triggere a teljes sort másolja a rendszerszintű
+ * `audit_log`-ba, a kereszt-gyülekezeti policy pedig idegen gyülekezetnek is
+ * kiadja a sort. Az élő mérés szerint MA egyetlen ilyen érték sincs — ez a
+ * kapu tartja is így.
+ */
+export function valodiCnpGyanus(ertek: string | null | undefined): boolean {
+  const v = (ertek ?? '').replace(/[\s\-]/g, '').trim()
+  if (!/^\d{13}$/.test(v)) return false
+  return validateRomanianCnp(v)
 }
 
 /** Maszk a hivatalos számhoz — a hossza SZÁNDÉKOSAN nem árulja el az értékét. */
@@ -172,4 +218,9 @@ export interface SzemelyiSzamMentesEredmeny {
   romanCnp: boolean
   /** Igaz, ha a mentés a szám TÖRLÉSE volt (üres bemenet). */
   torolve: boolean
+  /**
+   * Sikeres mentés melletti jelzés: az érték elmentve, de nem romániai CNP
+   * alakú, tehát NEM ellenőriztük. A néma elfogadás azt sugallná, hogy stimmel.
+   */
+  figyelmeztetes?: string | null
 }

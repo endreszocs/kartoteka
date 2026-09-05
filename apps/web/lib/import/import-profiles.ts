@@ -160,7 +160,7 @@ export const PROFILE_PERSONS: ImportProfile = {
   columnMap: [
     { excelHeader: 'Családnév', excelAliases: ['csaladnev', 'Vezetéknév', 'Név'], dbColumn: 'csaladnev', type: 'string', required: true, hint: 'Vezetéknév / családnév' },
     { excelHeader: 'Keresztnév', excelAliases: ['keresztnev', 'k_nev', 'Utónév'], dbColumn: 'k_nev', type: 'string', required: true, hint: 'Utónév / keresztnév' },
-    { excelHeader: 'CNP', excelAliases: ['cnp', 'Személyi szám', 'Személyi'], dbColumn: 'cnp', type: 'string', required: false, hint: 'Személyi szám (egyedi). Ha üres, automatikus IMPORT-XXXX azonosító generálódik.' },
+    { excelHeader: 'CNP', excelAliases: ['cnp', 'Személyi szám', 'Személyi'], dbColumn: 'cnp', type: 'string', required: false, hint: 'Egyházi azonosító (egyedi, max. 20 karakter). ⚠️ Ez a rendszer BELSŐ kódja, NEM a hivatalos személyi szám — azt a személyi kartonon kell rögzíteni. Ezen az úton a mező KÖTELEZŐ: üresen hagyva a mentés hibára fut.' },
     { excelHeader: 'Születési dátum', excelAliases: ['szuletesi_datum', 'Sz.dátum', 'sz_datum', 'Született'], dbColumn: 'sz_datum', type: 'date', required: false, hint: 'ÉÉÉÉ-HH-NN vagy ÉÉÉÉ.HH.NN' },
     { excelHeader: 'Születési név', excelAliases: ['szcs_nev', 'Leánykori név', 'SzCsaládnév'], dbColumn: 'szcs_nev', type: 'string', required: false, hint: 'Lánykori / születési családnév' },
     { excelHeader: 'Nem', excelAliases: ['ferfi', 'Férfi'], dbColumn: 'ferfi', type: 'boolean', required: false, hint: 'Igen/F/Férfi → férfi; Nem/N/Nő → nő' },

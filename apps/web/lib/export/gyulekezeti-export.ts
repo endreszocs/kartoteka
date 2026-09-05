@@ -145,6 +145,10 @@ const kozvetlen = (tabla: string, leiras: string): ExportTervElem => ({
  */
 export const EXPORT_TERV: ExportTervElem[] = [
   kozvetlen('szemely', 'A gyülekezet nyilvántartott személyei minden rögzített adatukkal.'),
+  // 2026-09-05: a hivatalos személyi szám (CNP) külön táblában él. AZ EXPORT
+  // ALLOWLIST — ami nincs itt, az némán kimaradna a „teljes" csomagból, pedig
+  // az érintettnek joga van hozzá. Fail-safe irány: inkább BENNE legyen.
+  kozvetlen('szemely_szemelyi_szam', 'A hivatalos állami személyi szám (CNP), ha rögzítve van.'),
   kozvetlen('haztartas', 'Háztartások (a személyek lakóközösségei).'),
   kozvetlen('haztartas_tag', 'Ki melyik háztartáshoz tartozik, mettől meddig.'),
   kozvetlen('szemely_kapcsolat', 'Rokoni és házastársi kapcsolatok személyek között.'),

@@ -23,6 +23,51 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
 
 ---
 
+## [2026-09-05] — A személyi szám védelmének megerősítése
+<!-- key: 2026-09-05-szemelyi-szam-megerosites -->
+<!-- category: security -->
+<!-- version: 0.9.226 -->
+<!-- targets: lelkipásztorok — személyi szám, egyházi azonosító, Excel-körút -->
+
+### 🔒 Biztonsági javítások
+
+- **A hivatalos személyi szám csak naplózottan nézhető meg**: ha a naplózás
+  bármi okból nem sikerül, a rendszer most már NEM mutatja meg a számot. Eddig
+  a naplózási hibát csendben elnyelte, és az „minden megjelenítés naplózódik"
+  ígéret észrevétlenül üressé válhatott.
+- **Nem keveredhet két ember száma**: ha megnyomtad a szem-ikont, majd gyorsan
+  átléptél egy másik tag kartonjára, az előző ember száma megjelenhetett volna
+  az új név alatt. Javítva — és a kartonváltás mostantól minden azonosító-mezőt
+  alaphelyzetbe tesz.
+- **Valódi CNP nem menthető az „Egyházi azonosító" mezőbe**: az egyházi
+  azonosító a rendszer belső kódja, ami a taglistával együtt utazik és a
+  változás-naplóba is bekerül. Ha 13 jegyű személyi számot írsz be, a rendszer
+  megmondja, hova tartozik helyette.
+- **Az Excel-körút nem írhatja át az egyházi azonosítót**: az exportált
+  munkalapon ez az oszlop mostantól csak olvasható. Egy „kijavított" cella eddig
+  átírhatta volna a szülő-gyermek kapcsolatokat — némán, akár más gyülekezetben is.
+- **A hivatalos szám bekerült az adatexportba**: eddig kimaradt volna a
+  „teljes" adatcsomagból, pedig az érintettnek joga van hozzá.
+
+### 🐛 Javítások
+
+- **A teszt-gyülekezet 48 tagja nem kap többé téves figyelmeztetést**: az ő
+  azonosítójuk (`EC-TSZT-…`) is rendszer-generált, de a felület személyes
+  adatnak nézte és elrejtette.
+- **Külföldi azonosító is menthető**: a magyar (11 jegyű), bolgár és ukrán
+  (10 jegyű) személyi azonosítót eddig „elgépelted a CNP-t" üzenettel utasította
+  el a rendszer. Mostantól elfogadja — és megmondja, hogy nem tudta ellenőrizni.
+  A perjeles (cseh/szlovák) íráskép sem csonkul el többé.
+- **Érthető üzenet másik gyülekezet adatainál**: ha be vagy lépve egy másik
+  gyülekezetbe, a mező megmondja, miért nem használható — eddig azt írta, hogy
+  „nincs rögzítve", holott csak nem látta.
+- **Nincs többé hamis „törölve" üzenet**: ha a törlés valójában egyetlen sort sem
+  érintett, a rendszer ezt megmondja, és nem ír hamis bejegyzést a naplóba.
+- **Az egyházi azonosító hossz-korlátja a valósághoz igazodik** (20 karakter) —
+  eddig 40-et engedett, és 20 fölött nyers adatbázis-hibát adott.
+
+---
+
 ## [2026-09-05] — Látod, kik vannak a családban; a személyi szám külön mezőbe került
 <!-- key: 2026-09-05-csalad-valaszto-es-szemelyi-szam -->
 <!-- category: improvement -->

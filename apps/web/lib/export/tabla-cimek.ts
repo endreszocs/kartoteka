@@ -23,6 +23,7 @@
  */
 export const TABLA_CIMEK: Record<string, string> = {
   szemely: 'Személyek',
+  szemely_szemelyi_szam: 'Hivatalos személyi szám (CNP)',
   csalad: 'Családok (örökölt nyilvántartás)',
   gyerek: 'Gyermek-kapcsolatok (örökölt nyilvántartás)',
   haztartas: 'Háztartások',
