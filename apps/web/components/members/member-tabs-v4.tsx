@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { BetoltesSav } from '@kartoteka/ui-app'
 import dynamic from 'next/dynamic'
 
 import { getFamilyGraphUnlockState } from '@/app/(dashboard)/tagnyilvantartas/family-graph-actions'
@@ -20,7 +21,10 @@ import { RegistryMembersWorkspace } from './registry-members-workspace'
 // a Presbiterek, Körzetek, Választók és Hibák fül kódja, és csak a
 // tényleges fülre kattintáskor töltődik le. Az Áttekintés (default) és a Személyek
 // (leggyakoribb) statikus marad a gyors első festésért. A viselkedés változatlan.
-const tabLoading = () => <div className="h-64 animate-pulse rounded-2xl bg-slate-100" />
+// 2026-09-05: lásd a finance-tabs azonos sorát — csupasz szürke doboz helyett
+// feliratos jelző. `next/dynamic` chunk-fallback, ezért késleltetve és
+// csendesen (a fül saját betöltője külön bemondja magát).
+const tabLoading = () => <BetoltesSav keslelteto={250} csendes reszlet="— egy pillanat, a fül megnyílik" />
 const PresbytersTab = dynamic(() => import('./presbyters-tab').then((m) => m.PresbytersTab), { ssr: false, loading: tabLoading })
 const DistrictsTab = dynamic(() => import('./districts-tab').then((m) => m.DistrictsTab), { ssr: false, loading: tabLoading })
 const VotersTab = dynamic(() => import('./voters-tab').then((m) => m.VotersTab), { ssr: false, loading: tabLoading })

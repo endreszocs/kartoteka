@@ -19,6 +19,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Check, Eye, EyeOff, Loader2, Pencil, ShieldAlert, X } from 'lucide-react'
+import { CalvinSpinner } from '@kartoteka/ui-app'
 import { toast } from 'sonner'
 
 import { Button } from '@/components/ui/button'
@@ -128,6 +129,20 @@ export function SzemelyiSzamMezo({ szemelyId, szerkesztheto = true }: { szemelyI
     } finally {
       setMent(false)
     }
+  }
+
+  // ⛔ BETÖLTÉS ALATT NE HAZUDJUNK. Amíg az `allapot` null, a mező eddig a
+  // „nincs rögzítve" ágra esett — vagyis HATÁROZOTTAN ÁLLÍTOTTA, hogy nincs
+  // szám, és fel is kínálta a Rögzítés gombot. Ha közben volt szám, a lelkész
+  // ráírhatott volna egy másikat. Ugyanaz a hibaosztály, amit a kereső üres
+  // listájánál javítottunk — csak itt én követtem el, egy nappal korábban.
+  if (allapot === null) {
+    return (
+      <span className="inline-flex items-center gap-2 text-muted-foreground" role="status" aria-live="polite">
+        <CalvinSpinner size={16} />
+        <span className="text-xs">Betöltés…</span>
+      </span>
+    )
   }
 
   if (allapot?.hiba) {

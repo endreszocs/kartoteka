@@ -77,13 +77,19 @@
 --       `2026-08-09-teszt-gyulekezet-seed.sql`) = 661, tehát minden érték
 --       RENDSZER ÁLTAL GENERÁLT.
 --
---       ⚠️ AMI NINCS MEGMÉRVE (a megállapításnak lejárati ideje van):
---         · a `szig`, `taj` és `megjegyzes` oszlopok — a legacy tömeges import
---           épp ezeket kínálta, és ma egyetlen felület sem olvassa őket;
---         · a desktop gépeken ÜLŐ, még fel nem szinkronizált sorok: az új-tag
---           űrlap VALÓDI 13 jegyű CNP-t követel meg, és a következő sikeres
---           szinkron beírná a `cnp`-be. Amíg ez az út nyitva van, a nulla
---           eredmény bármikor megszűnhet.
+--       ✅ AZÓTA MEGMÉRVE (2026-09-05, `docs/2026-09-05-lappango-szemelyi-szam.sql`):
+--         · `szig`: 0 kitöltött sor — az oszlop TELJESEN ÜRES;
+--         · `taj`:  0 kitöltött sor — szintén;
+--         · `megjegyzes`: 0 sorban van 13 összefüggő számjegy;
+--         · a 8 anyakönyvi tábla megjegyzés-mezője: 0.
+--       Vagyis az ADATBÁZISBAN SEHOL nincs valódi személyi szám.
+--
+--       ⚠️ AMI TOVÁBBRA IS NYITVA (a megállapításnak lejárati ideje van):
+--         a desktop gépeken ÜLŐ, még fel nem szinkronizált sorok. Az új-tag
+--         űrlap VALÓDI 13 jegyű CNP-t KÖVETEL MEG, és a következő sikeres
+--         szinkron beírná a `cnp`-be. Amíg ez az út nyitva van, a nulla
+--         eredmény bármikor megszűnhet — a webes utat már lezártuk
+--         (`valodiCnpGyanus` kapu), a desktopot még nem.
 --       Mérő SQL-ek:
 --       docs/2026-09-05-szemelyi-szam-allapotfelmeres.sql
 --       docs/2026-09-05-egyeb-azonositok-alakja.sql
