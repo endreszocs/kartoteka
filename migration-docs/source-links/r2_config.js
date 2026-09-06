@@ -14,8 +14,12 @@ window.R2_CONFIG = {
     // Példa: 'https://kartoteka-r2.your-subdomain.workers.dev'
     WORKER_URL: 'https://kartoteka-r2.endreszocs.workers.dev',
 
-    // Autentikációs kulcs (ugyanaz mint a Worker-ben beállított AUTH_SECRET)
-    AUTH_SECRET: '770583752112295fe9457b241c3f56522ee723799aa2094590abf8b7c61beede',
+    // Autentikációs kulcs (ugyanaz mint a Worker-ben beállított AUTH_SECRET).
+    // 2026-09-06: a valódi érték KIVÉVE — verziókövetve állt, és a repót olvasva
+    // bárki korlátlanul tölthetett volna fel fájlt a tárolóba. A titok a git
+    // TÖRTÉNETÉBEN megmarad, ezért a Cloudflare oldalán ROTÁLNI is kell:
+    // Workers & Pages -> kartoteka-r2 -> Settings -> Variables and Secrets.
+    AUTH_SECRET: '<R2_AUTH_SECRET>',
 
     // Maximum fájlméret (byte-ban) — 20 MB
     MAX_FILE_SIZE: 20 * 1024 * 1024,
