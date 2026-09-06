@@ -11,6 +11,8 @@
 
 import { z } from 'zod'
 
+import type { AvatarSource } from '@/lib/auth/profile-avatar-shared'
+
 // ── Konstansok ───────────────────────────────────────────────────────────────
 
 export const PROFILE_PHOTO_MAX_BYTES = 2_097_152
@@ -172,7 +174,7 @@ export interface ProfileDialogRoleRow {
   grantedAt: string
   approvedAt: string | null
   approvedBy: string | null
-  /** A Fázis-1 backfill sora: `approved_by` NULL és az `approved_at` a fiók napja. */
+  /** A Fázis-1 backfill sora: `approved_by` NULL ÉS `approved_at` = a fiók `created_at`-ja (±5 mp, `orokoltSzerepE`) — nem napra-egyezés. */
   orokolt: boolean
   aktiv: boolean
 }
@@ -224,9 +226,29 @@ export interface ProfileDialogData {
   /** A nyilvántartott (profiles.congregation_id) gyülekezet, ha NEM az aktív. */
   nyilvantartottCongregationName: string | null
   avatarUrl: string | null
+  /** A DÖNTÉS (`pastor_profiles.avatar_source`) — NULL az örökölt, SQL előtti soron. */
   avatarSource: string | null
+  /**
+   * Az EFFEKTÍV forrás (`effektivAvatarSource`): explicit döntésnél a döntés,
+   * örökölt sornál a megjelenítés sorrendjéből levezetve — a forrás-váltó
+   * gombjai EBBŐL jelölnek, hogy NULL döntésnél is látszódjon, mi látszik.
+   * `null` = örökölt metaadat-kép ismeretlen eredettel (nincs rá gomb).
+   */
+  effektivAvatarSource: AvatarSource | null
   /** Van-e Google-fiók-kép, amire „Google-fotó használata" gombbal át lehet váltani. */
   googlePictureElerheto: boolean
+  /**
+   * Van-e FELTÖLTÖTT kép (`pastor_profiles.photo_url`). A forrás-váltás
+   * (Google ⇄ feltöltött ⇄ monogram) a fájlt NEM törli — ezért a feltöltött kép
+   * akkor is „megvan", ha épp nem az látszik; a törlés külön, megerősítéssel.
+   */
+  feltoltottKepVan: boolean
+  /**
+   * A „Kapcsolatok" (hozzáférési kérések) felület elérhető-e — a szerveren
+   * EGY feloldóból (`lelkesziSzerepbenE`), ugyanabból, amiből a
+   * /profile/kapcsolatok oldal és akciói döntenek. A kliens NEM számolja újra.
+   */
+  kapcsolatokElerheto: boolean
   extensionReady: boolean
   extensionMessage: string | null
   pastorProfile: {
@@ -274,4 +296,74 @@ export interface ProfilePhotoResult {
   warning?: string
   avatarUrl?: string | null
   avatarSource?: string | null
+  /** A művelet UTÁNI effektív forrás (ugyanabból a szabályból, mint a betöltés). */
+  effektivAvatarSource?: AvatarSource | null
+  /** A művelet UTÁN van-e még feltöltött kép (photo_url) — a felület gombjai ebből élnek. */
+  feltoltottKepVan?: boolean
+  /**
+   * CSAK a törlésnél: a hivatkozott fájl tárhely-törlését a Storage IGAZOLTA.
+   * `false` = csak a hivatkozás tűnt el (a fájl nem a saját mappában élt) —
+   * a felület ilyenkor NEM mond „véglegesen törölve"-t.
+   */
+  fajlTorolve?: boolean
+}
+
+// ── Tárhely: a Storage remove() eredményének ellenőrzése ────────────────────
+
+/**
+ * A `storage.from(...).remove(utak)` RLS-tiltásnál NEM ad hibát: `error: null`
+ * és a TÉNYLEGESEN törölt objektumok listája jön vissza (üres, ha a policy
+ * mindent elutasított). Ezért a kért és a visszaadott listát össze kell vetni —
+ * ami nincs a visszaadottak között, az a tárhelyen MARADT. (2026-09-05, P3.)
+ *
+ * Tiszta függvény: a kért utak közül azokat adja vissza, amelyek NEM
+ * szerepelnek a törölt objektumok `name` mezőjében (a Storage a teljes
+ * objektum-utat adja: `profiles/<uid>/avatar.jpg`). Bizonytalan bemenetre
+ * (`null` lista) MINDEN kért út toröletlennek számít — fail-closed.
+ */
+export function toroletlenUtak(kert: string[], torolt: Array<{ name: string }> | null | undefined): string[] {
+  const megerositett = new Set((torolt || []).map((o) => o.name))
+  return kert.filter((ut) => !megerositett.has(ut))
+}
+
+/**
+ * A törlésre KÉRT utak: a mappa listázott tartalma (a `kivetel` — az épp
+ * feltöltött fájl — nélkül) ∪ a `kotelezo` (a profil által HIVATKOZOTT fájl).
+ *
+ * MIÉRT (2026-09-05, bírálat P3): a Storage `list()` ugyanúgy RLS-néma, mint a
+ * `remove()` — SELECT-tiltásnál hiba nélkül ÜRES tömböt ad. Ha a kért lista
+ * csak a listázásból jönne, az üres lista „nincs mit törölni"-t jelentene, a
+ * hivatkozás nullázódna, a fájl maradna. A hivatkozott fájlt ezért akkor is
+ * kérjük, ha a lista nem hozta: a törlés igazolását a `remove()` válasza adja
+ * (`toroletlenUtak`), nem a lista.
+ */
+export function torlesreKertUtak(listazott: string[], opts: { kivetel?: string; kotelezo?: string }): string[] {
+  const kert = listazott.filter((p) => p !== opts.kivetel)
+  if (opts.kotelezo && opts.kotelezo !== opts.kivetel && !kert.includes(opts.kotelezo)) kert.push(opts.kotelezo)
+  return kert
+}
+
+/**
+ * A `photo_url` (nyilvános Storage-URL, opcionális `?v=` verzióval) → az
+ * objektum útja a `logos` vödörben (`profiles/<uid>/avatar.jpg`), vagy `null`,
+ * ha az URL nem a `logos` vödörre mutat. A törlésnél ezzel dől el, hogy a
+ * profil által HIVATKOZOTT fájl valóban eltűnt-e.
+ */
+export function profilkepObjektumUt(photoUrl: string | null | undefined): string | null {
+  if (!photoUrl) return null
+  const kerdojel = photoUrl.indexOf('?')
+  const tiszta = kerdojel >= 0 ? photoUrl.slice(0, kerdojel) : photoUrl
+  const jel = '/logos/'
+  const i = tiszta.indexOf(jel)
+  if (i < 0) return null
+  const ut = tiszta.slice(i + jel.length)
+  if (!ut) return null
+  // Hibás kódolású URL (pl. magányos `%`): a nyers utat adjuk vissza — az
+  // összevetés így legfeljebb eltérést (hangos hibát) jelez, nem dob a
+  // szerver-akcióban (az élesben maszkolt üzenetként érne a felületre).
+  try {
+    return decodeURIComponent(ut)
+  } catch {
+    return ut
+  }
 }

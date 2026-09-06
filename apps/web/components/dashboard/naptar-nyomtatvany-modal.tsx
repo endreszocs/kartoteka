@@ -17,8 +17,14 @@
  *     about:blank-ot fogadunk el, a print-engine-v2 hibaosztálya);
  *   · a fit() MINDKÉT tengelyre skáláz (egy teljes lap látszik), zoom-lépcső
  *     [1, 1.5, 2, 3], telefonon mindkét irányban görgethető;
- *   · a modál mérete inline (a kartoteka.css más ügynöké): min(1500px,96vw)
- *     × min(94vh,1100px).
+ *   · a modál mérete EGY forrásból: a `.kt-eves-modal` osztály
+ *     (packages/ui/src/kartoteka.css; telefonon a vw-alapú szélesség
+ *     gyakorlatilag teljes). Itt NINCS inline width/height, és a konkrét
+ *     plafon-értékek SEM állnak itt (komment ≠ forrás) — azokat az őrszem
+ *     méri a CSS-en (selftest-naptar-nyomtatvany F2cm, mutánssal);
+ *     2026-09-05 (P3-utómunka): a két igazságforrás megszűnt;
+ *   · a Nyomtatás/PDF a blokkoló hiba és a betöltés alatt is tiltva — a
+ *     hiba-kártya mögött nem maradhat nyomtatható a KORÁBBI (más évi) lap.
  *
  * Előnézeti iframe: `sandbox="allow-same-origin"` — script nem futhat benne
  * (a nyomtatvány-HTML nem is tartalmaz), a contentDocument viszont mérhető.
@@ -162,9 +168,15 @@ export function NaptarNyomtatvanyModal({
   const nemKesz = () => {
     toast.info(hiba ?? frameHiba ?? 'Az előnézet még töltődik — egy pillanat, és nyomtatható.')
   }
+  /**
+   * Nyomtatható-e MOST: nincs blokkoló hiba, nem tölt, és az előnézet tartalma
+   * igazoltan áll. A `hiba`/`betolt` is kell: a hívó `html`-je egy KORÁBBI
+   * (más évi) sikeres építés lehet — a hiba-kártya mögött az nem mehet papírra.
+   */
+  const nyomtathato = !hiba && !betolt && !!html && frameReady
 
   async function nyomtat() {
-    if (!html || !frameReady) { nemKesz(); return }
+    if (!html || !nyomtathato) { nemKesz(); return }
     onNyomtatasElott?.()
     try {
       await printToBrowser(html)
@@ -174,7 +186,7 @@ export function NaptarNyomtatvanyModal({
   }
 
   async function pdf() {
-    if (!html || !frameReady) { nemKesz(); return }
+    if (!html || !nyomtathato) { nemKesz(); return }
     onNyomtatasElott?.()
     setPdfFut(true)
     try {
@@ -198,19 +210,12 @@ export function NaptarNyomtatvanyModal({
 
   if (!open || typeof document === 'undefined') return null
 
-  const gombTilt = !frameReady || pdfFut
+  const gombTilt = !nyomtathato || pdfFut
 
   return createPortal(
     <div className="kt-modal-overlay kt-eves-overlay" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose() }}>
-      <div
-        className="kt-eves-modal"
-        role="dialog"
-        aria-modal="true"
-        aria-label={ariaLabel}
-        // A méret INLINE: a kartoteka.css-t más ügynök gondozza; a régi
-        // 1180×920-as plafon nagy monitoron a képernyő felét hagyta üresen.
-        style={{ width: 'min(1500px, 96vw)', height: 'min(94vh, 1100px)' }}
-      >
+      {/* A méret a `.kt-eves-modal` osztályból jön (kartoteka.css) — EGY forrás, reszponzív. */}
+      <div className="kt-eves-modal" role="dialog" aria-modal="true" aria-label={ariaLabel}>
         <div className="kt-eves-head">
           <div className="kt-modal-title">
             <span className="kt-modal-ico">{ikon}</span>
@@ -288,13 +293,18 @@ export function NaptarNyomtatvanyModal({
 
         <div className="kt-eves-body relative">
           {hiba ? (
-            <div className="flex h-full flex-col items-center justify-center gap-3 p-6 text-center">
-              <p className="max-w-xl text-sm font-semibold text-destructive">{hiba}</p>
-              {onUjra ? (
-                <button type="button" className="kt-btn kt-btn-outline" style={{ minHeight: 44 }} onClick={onUjra}>
-                  <RefreshCw size={16} /> Újrapróbálom
-                </button>
-              ) : null}
+            <div className="flex h-full flex-col items-center justify-center p-4">
+              {/* Hiba-KÁRTYA: a szöveg itt marad (nem csak toast), Újratöltés gombbal;
+                  a Nyomtatás/PDF addig tiltva — üres vagy más évi papír nem mehet ki. */}
+              <div role="alert" className="flex max-w-xl flex-col items-center gap-3 rounded-xl border border-border bg-card p-6 text-center shadow-sm">
+                <p className="text-sm font-semibold text-destructive">{hiba}</p>
+                <p className="text-xs text-muted-foreground">A nyomtatás és a PDF-mentés a sikeres betöltésig nem elérhető.</p>
+                {onUjra ? (
+                  <button type="button" className="kt-btn kt-btn-outline" style={{ minHeight: 44 }} onClick={onUjra}>
+                    <RefreshCw size={16} /> Újratöltés
+                  </button>
+                ) : null}
+              </div>
             </div>
           ) : betolt || !html ? (
             <div className="flex h-full flex-col items-center justify-center gap-3 p-6 text-center text-sm text-muted-foreground">

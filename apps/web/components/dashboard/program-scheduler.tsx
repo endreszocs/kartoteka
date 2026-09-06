@@ -35,6 +35,7 @@ import { expandProgramOccurrences } from '@/lib/utils/program-recurrence'
 import { ymd } from '@/lib/utils/program-day'
 import {
   NAPTAR_RETEG_ALAP, NAPTAR_RETEG_LS_KULCS, ANYAKONYV_TABLA_CIMKE, PROGRAM_TIPUS_ANYAKONYV_TABLA,
+  ISMETLODO_SOROZAT_ANYAKONYV_HIBA,
 } from '@/lib/calendar/naptar-retegek-types'
 import type { AnyakonyviEsemeny, NaptarRetegKapcsolok, NaptarRetegek } from '@/lib/calendar/naptar-retegek-types'
 import { napTetelei, retegPottyokNaponkent, retegekSzamaHonapban } from '@/lib/calendar/naptar-retegek-osszefesules'
@@ -426,13 +427,27 @@ export function ProgramScheduler({ initialYear, congregationName, congregationLo
     // A sorozat valódi sora (id) + az ALKALOM napja (ismétlődő anyakönyvi program
     // nem életszerű, de a dedupe és a dátum így is helyes marad).
     const real = (programs as ProgramAnyakonyvLink[]).find((x) => x.id === p.id) ?? p
+    // 2026-09-05 (P3-utómunka): ISMÉTLŐDŐ sorozatot NEM engedünk az anyakönyvi
+    // dialógusig. A szerver (kapcsolProgramAnyakonyvhoz) úgyis elutasítaná az
+    // összekötést — de akkor már ott állna egy KÖTETLEN anyakönyvi sor
+    // (félkész állapot). Ugyanaz az üzenet, mint a szerveré: egy forrás.
+    if (real.ismetlodes_tipus) {
+      toast.error(ISMETLODO_SOROZAT_ANYAKONYV_HIBA, { duration: 9000 })
+      return
+    }
     setAnyakonyvezes({ tabla: PROGRAM_TIPUS_ANYAKONYV_TABLA[p.tipus], program: { ...real, datum: p.datum } })
     setAnyakonyvNyitva(true)
   }
   async function osszekot(program: ProgramAnyakonyvLink, tabla: AnyakonyvTabla, anyakonyvId: number) {
     const res = await kapcsolProgramAnyakonyvhoz({ programId: program.id, anyakonyvId })
     if (!res.ok) {
-      toast.error(res.error ?? 'A program és az anyakönyvi bejegyzés összekötése nem sikerült.', { duration: 9000 })
+      // Az anyakönyvi sor ekkor MÁR mentve van (az onSaved a sikeres mentés
+      // után hív) — a lelkész tudja meg, hogy a bejegyzés megvan, csak a
+      // program nincs hozzákötve; nem néma, nem félrevezető.
+      toast.error(
+        `${res.error ?? 'A program és az anyakönyvi bejegyzés összekötése nem sikerült.'} Az anyakönyvi bejegyzés mentve maradt, csak a programhoz nincs hozzákötve.`,
+        { duration: 12000 },
+      )
     } else {
       toast.success(`A program összekötve az anyakönyvi bejegyzéssel (${ANYAKONYV_TABLA_CIMKE[tabla].toLowerCase()}) — a naptár mostantól „anyakönyvezve" jelzi.`)
     }

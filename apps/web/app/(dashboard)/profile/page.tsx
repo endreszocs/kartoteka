@@ -9,6 +9,7 @@ import { OpenProfileDialogButton } from '@/components/profile/open-profile-dialo
 // 2026-08-11: lelkészi (privát) naptár-feed — a gyülekezet évfordulói a saját naptárban.
 import { PastoralCalendarCard } from '@/components/profile/pastoral-calendar-card'
 import { getEffectiveAccessContext } from '@/lib/auth/effective-access'
+import { lelkesziSzerepbenE } from '@/lib/profile-roles/aktiv-szerep'
 import { getRoleLabel, getScopeLabel } from '@/lib/profile-roles/labels'
 import { formatTimestampHu } from '@/lib/utils/date'
 
@@ -37,6 +38,10 @@ export default async function ProfilePage() {
     : getRoleLabel(role)
   // Az e-mail az AUTH-ból kanonikus (D14); a profiles.email csak jelzés.
   const email = access.user.email || profile.email || null
+  // 2026-09-05 (P3): a „Kapcsolatok" kártya UGYANABBÓL a feloldóból dönt, mint a
+  // /profile/kapcsolatok oldal, annak akciói és a dialógus linkje — eddig a
+  // legacy skalárból (`role === 'lelkesz'`), a többi hely az aktív szerepből.
+  const kapcsolatokElerheto = lelkesziSzerepbenE(access)
 
   return (
     <div className="mx-auto max-w-5xl px-4 py-8 sm:px-6 lg:px-8">
@@ -176,7 +181,7 @@ export default async function ProfilePage() {
         </CardContent>
       </Card>
 
-      {role === 'lelkesz' && (
+      {kapcsolatokElerheto && (
         <Card className="mt-6 border-border bg-muted/40">
           <CardContent className="flex flex-wrap items-center justify-between gap-3 p-5">
             <div className="min-w-0">

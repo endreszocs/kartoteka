@@ -36,6 +36,24 @@
 //   F7   a betekintés-kimutatás MINDKÉT audit-kulcsot emberi mondatra fordítja
 //        (viselkedés: auditMondat); a naplózó térképének minden kulcsa a szótárban
 //   F7n  negatív: ismeretlen kulcsra „ismeretlen műveletet" — a szótár nem talál ki
+//   ── 2026-09-05 P3-utómunka ──
+//   F2c  a modál mérete EGY forrásból (.kt-eves-modal a kartoteka.css-ben), inline NINCS
+//   F2cn negatív: az inline méret visszaírva → BUKIK
+//   F2cm (bíráló P3) a CSS-plafon KONKRÉT értéke mérve — min(1500px, 96vw) × min(94vh, 1100px)
+//        (a kartoteka.css más tulajdonos: a csendes szűkülés nem maradhat észrevétlen)
+//   F2cmn negatív: a CSS-blokk a régi 1180×920-as plafonra szűkítve → az alak-őr zöld, ez BUKIK
+//   F2g  a Nyomtatás/PDF kapuja a blokkoló HIBÁT és a betöltést is nézi (más évi lap sem)
+//   F2gn negatív: a hibát nem néző régi kapu → BUKIK
+//   F2j  a blokkoló hiba KÁRTYÁN marad (role=alert) + Újratöltés — nem csak toast
+//   F3f  köszöntő: a módhoz szükséges réteg hibája BLOKKOL (hiba-kártya, html null)
+//   F3fn negatív: a réteg-hibát nem néző mutáns → BUKIK
+//   F3g  teljes betöltési hibánál a korábbi év adata törlődik (nincs tavalyi papír)
+//   F3h  (bíráló P3) a KOSZONTO_RETEGEK kulcsai a naptar-retegek-types.ts `hibak`
+//        uniójának tagjai (forrás-alapú egyeztetés), a tömb `satisfies`-szel az unióhoz
+//        KÖTVE, a szűrők RetegKulcs-típusúak (nincs string-cast / Set<string>)
+//   F3hn negatív: 'szuletesnap'-ra átnevezett kulcs → BUKIK; a kötés kivéve → BUKIK
+//   F8   a két építő a ui-app barrelből is kijut (desktop) és TISZTA modul marad
+//   F8n  negatív: a barrel-export kivéve → BUKIK
 
 import fs from 'node:fs'
 import os from 'node:os'
@@ -73,7 +91,13 @@ const SRC = {
   szul: path.join(ROOT, 'apps/web/components/dashboard/szuletesnapos-naptar-print.tsx'),
   modal: path.join(ROOT, 'apps/web/components/dashboard/naptar-nyomtatvany-modal.tsx'),
   retegek: path.join(ROOT, 'apps/web/app/(dashboard)/naptar/retegek-actions.ts'),
+  retegekTypes: path.join(ROOT, 'apps/web/lib/calendar/naptar-retegek-types.ts'),
   naplo: path.join(ROOT, 'apps/web/lib/export/betekintes-naplo.ts'),
+  // 2026-09-05 P3-utómunka: a modál méretének EGYETLEN forrása + a ui-app barrelek
+  css: path.join(ROOT, 'packages/ui/src/kartoteka.css'),
+  dashIndex: path.join(ROOT, 'packages/ui-app/src/dashboard/index.ts'),
+  membersIndex: path.join(ROOT, 'packages/ui-app/src/members/index.ts'),
+  rootIndex: path.join(ROOT, 'packages/ui-app/src/index.ts'),
 }
 const read = (f) => fs.readFileSync(f, 'utf8')
 
@@ -477,11 +501,48 @@ function kbemenet(over = {}) {
   const modal = stripComments(read(SRC.modal))
   assert(modal.includes("from '@/lib/utils/print-engine-v2'") && modal.includes('printToPdf(html, filename') && modal.includes('printToBrowser(html)'), 'F2: a modál a KÖZÖS nyomtató-motort hívja (PDF + böngészős nyomtatás)')
   assert(/catch \(e\) \{[\s\S]*?toast\.error\([\s\S]*?await printToBrowser\(html\)/.test(modal), 'F2b: a PDF-hiba HANGOS (toast) és a tartalék a böngészős nyomtatás')
-  assert(modal.includes("width: 'min(1500px, 96vw)', height: 'min(94vh, 1100px)'"), 'F2c: a modál mérete inline: min(1500px,96vw) × min(94vh,1100px)')
+  // F2c (2026-09-05 P3-utómunka): a méret EGY forrásból — a .kt-eves-modal osztály
+  //     (kartoteka.css, reszponzív min(…vw) × min(…vh)); a modálban NINCS inline
+  //     width/height (korábban két igazságforrás volt, ugyanazzal az értékkel).
+  const css = read(SRC.css)
+  const cssMeretAlak = (s) => /\.kt-eves-modal\s*\{[^}]*width:\s*min\([^)]*vw\)[^}]*height:\s*min\([^)]*vh[^)]*\)/.test(s)
+  const cssMeret = cssMeretAlak(css)
+  // A modál-DOBOZ nyitó tagjét nézzük (az előnézet-burkoló `style={{ width: scaledW…}}`
+  // szándékosan inline — az a skálázás, nem a modál mérete).
+  const modalMeretEgyForras = (src) => {
+    const nyito = src.match(/<div className="kt-eves-modal"[^>]*>/)?.[0] ?? ''
+    return nyito.length > 0 && !/style=/.test(nyito) && !/min\(1500px/.test(src)
+  }
+  assert(cssMeret && modalMeretEgyForras(modal), 'F2c: a modál mérete EGY forrásból (.kt-eves-modal: reszponzív min(…vw) × min(…vh) a kartoteka.css-ben), inline width/height NINCS')
+  const modalMeretMutans = modal.replace('className="kt-eves-modal"', "className=\"kt-eves-modal\" style={{ width: 'min(1500px, 96vw)', height: 'min(94vh, 1100px)' }}")
+  assert(modalMeretMutans !== modal && !modalMeretEgyForras(modalMeretMutans), 'F2cn: az inline méretet visszaíró (régi) mutánson az őrszem BUKIK')
+  // F2cm (bíráló P3, 2026-09-05): az EGYETLEN forrás (kartoteka.css) MÁS tulajdonos
+  //     gondozásában áll, és az alak-őr bármilyen min(…vw)/min(…vh) értékre zöld —
+  //     a régi 1180×920-as plafon vw/vh-s visszaírása észrevétlen maradna, a
+  //     nagy-monitoros előnézet újra a képernyő felét hagyná üresen. Ezért a
+  //     KONKRÉT érték is mérve; a modál kommentjében a számok NEM állnak (komment ≠ forrás).
+  const cssMeretErtek = (s) => /\.kt-eves-modal\s*\{[^}]*width:\s*min\(1500px,\s*96vw\)[^}]*height:\s*min\(94vh,\s*1100px\)/.test(s)
+  assert(cssMeretErtek(css), 'F2cm: a .kt-eves-modal plafonja a kartoteka.css-ben KONKRÉTAN min(1500px, 96vw) × min(94vh, 1100px) — nem csak az alak')
+  assert(!/min\(\s*\d+px\s*,\s*\d+vw\s*\)|min\(\s*\d+vh\s*,\s*\d+px\s*\)/.test(stripComments(modal)), 'F2cm/b: a modál forrásában (kommentek nélkül) NINCS px×vw / vh×px méret — a számok egyetlen helye a CSS')
+  // A mutáns a BEOLVASOTT sztringen fut, a fájlhoz nem nyúl: a .kt-eves-modal blokkot
+  // szűkítjük 1180×920-ra — az alak-őr zöld marad, az érték-őrnek BUKNIA kell.
+  const cssBlokk = css.match(/\.kt-eves-modal\s*\{[^}]*\}/)?.[0] ?? ''
+  const cssSzukMutans = cssBlokk ? css.replace(cssBlokk, cssBlokk.replace('min(1500px', 'min(1180px').replace('1100px', '920px')) : css
+  assert(cssBlokk.length > 0 && cssSzukMutans !== css && cssMeretAlak(cssSzukMutans) && !cssMeretErtek(cssSzukMutans), 'F2cmn: az 1180×920-ra szűkített CSS-mutánson az alak-őr zöld maradna, az érték-őr BUKIK')
   assert(modal.includes('[1, 1.5, 2, 3]'), 'F2d: zoom-lépcső [1, 1.5, 2, 3]')
   assert(/Math\.min\(1, \(boxW - 16\) \/ frameW, \(boxH - 16\) \//.test(modal), 'F2e: a fit() MINDKÉT tengelyre skáláz')
   assert(modal.includes("querySelectorAll('.page').length") && modal.includes('childElementCount > 0') && modal.includes('readyHtml === html'), 'F2f: a készenlét TARTALOM-mérés (lapszám + body-gyerek), nem about:blank')
-  assert(modal.includes('disabled={gombTilt}') && modal.includes('const gombTilt = !frameReady || pdfFut'), 'F2g: a Nyomtatás/PDF gomb a betöltésig tiltva')
+  // F2g (2026-09-05 P3-utómunka): a gomb-kapu a blokkoló HIBÁT és a betöltést is
+  //     nézi — a hiba-kártya mögött nem maradhat nyomtatható a korábbi (más évi) lap.
+  const gombKapuOk = (src) =>
+    src.includes('disabled={gombTilt}') &&
+    src.includes('const nyomtathato = !hiba && !betolt && !!html && frameReady') &&
+    src.includes('const gombTilt = !nyomtathato || pdfFut') &&
+    (src.match(/if \(!html \|\| !nyomtathato\) \{ nemKesz\(\); return \}/g) || []).length === 2
+  assert(gombKapuOk(modal), 'F2g: a Nyomtatás/PDF gomb ÉS a két indító függvény kapuja: nincs blokkoló hiba, nem tölt, az előnézet tartalma áll')
+  const gombKapuMutans = modal.replace('const nyomtathato = !hiba && !betolt && !!html && frameReady', 'const nyomtathato = !!html && frameReady')
+  assert(gombKapuMutans !== modal && !gombKapuOk(gombKapuMutans), 'F2gn: a hibát nem néző (régi) kapu mutánsán az őrszem BUKIK')
+  assert(/role="alert"/.test(modal) && modal.includes('Újratöltés') && /\{hiba\}<\/p>/.test(modal), 'F2j: a blokkoló hiba KÁRTYÁN marad (role=alert, a szöveg a DOM-ban), Újratöltés gombbal — nem csak toast')
   assert(modal.includes('sandbox="allow-same-origin"'), 'F2h: az előnézeti iframe sandbox-olt (script nem fut)')
   assert(/toast\.error\(|toast\.info\(/.test(modal) && !/console\.error\(/.test(modal), 'F2i: a hibák a felületre mennek (toast), nem a konzolra')
 
@@ -494,6 +555,52 @@ function kbemenet(over = {}) {
   assert(szul.includes('getNaptarRetegek(ev)') && szul.includes('setHiba(') && szul.includes('betolt={betolt}'), 'F3c: a rétegek betöltése látható (loading + hiba), nem néma')
   assert(szul.includes("orientation=\"portrait\"") && szul.includes('honapTol') && szul.includes('kiskoruKor'), 'F3d: A4 álló, hónap-tartomány és kiskorú-kapcsoló a felületen')
   assert(!/slate-|bg-white|text-white/.test(szul) && !/slate-|bg-white|text-white/.test(modal) && !/slate-|bg-white|text-white/.test(annual), 'F3e: nincs hardkódolt slate/white szín az új kódban (téma-tokenek)')
+
+  // F3f (2026-09-05 P3-utómunka): a módhoz SZÜKSÉGES réteg hibája BLOKKOL — a hiba a
+  //     modál kártyáján, Újratöltés, html: null (nincs „nincs köszöntendő" feliratú üres papír).
+  const szulKapuOk = (src) =>
+    /function szuksegesRetegek\(mod: KoszontoMod\)/.test(src) &&
+    src.includes('const blokkoloHiba = hiba ?? retegHibaSzoveg ?? epitesHiba') &&
+    src.includes('const nyomtathato = blokkoloHiba ? null : kesz') &&
+    src.includes('html={nyomtathato?.html ?? null}') &&
+    src.includes('hiba={blokkoloHiba}') &&
+    /onUjra=\{hiba \|\| retegHibaSzoveg \? \(\) => retegekBetoltese\(celEv\) : undefined\}/.test(src)
+  assert(szulKapuOk(szul), 'F3f: a köszöntő naptár a módhoz szükséges réteg hibájánál NEM ad nyomtatható lapot (hiba-kártya + Újratöltés, html null)')
+  const szulMutans = szul.replace('const blokkoloHiba = hiba ?? retegHibaSzoveg ?? epitesHiba', 'const blokkoloHiba = hiba ?? epitesHiba')
+  assert(szulMutans !== szul && !szulKapuOk(szulMutans), 'F3fn: a réteg-hibát nem néző (régi) mutánson az őrszem BUKIK')
+  assert(/catch \(e\) \{[\s\S]*?setNezet\(null\)[\s\S]*?setHiba\(/.test(szul), 'F3g: teljes betöltési hibánál a korábbi év adata törlődik (nem marad a hiba mögött nyomtatható tavalyi lap)')
+
+  // F3h (bíráló P3, 2026-09-05): a köszöntő naptár a hibákat RÉTEG-KULCS szerint szűri
+  //     (F3f blokkolás + figyelmeztető toast). A kulcsoknak a naptar-retegek-types.ts
+  //     `hibak` uniójában kell állniuk (forrás-alapú egyeztetés, nem sztring-hit), és a
+  //     tömb az unióhoz KÖTVE (`satisfies`) — egy forrás-oldali átnevezés fordítási
+  //     hiba, nem néma kiesés. A szűrők RetegKulcs-típusúak: nincs `as readonly string[]`,
+  //     nincs `Set<string>` (azok bármilyen sztringet elfogadnak).
+  const retegekTypes = stripComments(read(SRC.retegekTypes))
+  const hibakUnio = retegekTypes.match(/hibak:\s*Array<\{\s*reteg:\s*([^;]+);/)?.[1] ?? ''
+  const unioKulcsok = [...hibakUnio.matchAll(/'([a-z_]+)'/g)].map((m) => m[1])
+  const koszontoKulcsok = (src) => {
+    const m = src.match(/const KOSZONTO_RETEGEK = \[([^\]]*)\] as const satisfies readonly RetegKulcs\[\]/)
+    return m ? [...m[1].matchAll(/'([a-z_]+)'/g)].map((x) => x[1]) : null
+  }
+  const koszontoKulcsOk = (src) => {
+    const k = koszontoKulcsok(src)
+    return (
+      !!k && k.length === 2 && k.every((x) => unioKulcsok.includes(x)) &&
+      /type RetegKulcs = NaptarRetegek\['hibak'\]\[number\]\['reteg'\]/.test(src) &&
+      src.includes('new Set<RetegKulcs>(szuksegesRetegek(mod))') &&
+      /\(KOSZONTO_RETEGEK as readonly RetegKulcs\[\]\)\.includes\(h\.reteg\)/.test(src) &&
+      !/as readonly string\[\]/.test(src) && !/new Set<string>/.test(src)
+    )
+  }
+  assert(unioKulcsok.length === 3 && unioKulcsok.includes('szuletesnapok') && unioKulcsok.includes('nevnapok'), `F3h-előfeltétel: a hibak-unió a types-fájlból kiolvasható (${unioKulcsok.join(', ') || 'ÜRES'})`)
+  assert(koszontoKulcsOk(szul), `F3h: a KOSZONTO_RETEGEK kulcsai (${(koszontoKulcsok(szul) ?? []).join(', ') || 'NINCS'}) a hibak-unió tagjai, a tömb satisfies-szel az unióhoz kötve, a szűrők RetegKulcs-típusúak (nincs string-cast, nincs Set<string>)`)
+  const kulcsMutans = szul.replace("['szuletesnapok', 'nevnapok'] as const satisfies", "['szuletesnap', 'nevnapok'] as const satisfies")
+  assert(kulcsMutans !== szul && !koszontoKulcsOk(kulcsMutans), "F3hn: a 'szuletesnap'-ra átnevezett kulcsú mutánson az őrszem BUKIK (a forrásban nincs ilyen réteg)")
+  const kotesMutans = szul.replace(' as const satisfies readonly RetegKulcs[]', ' as const')
+  assert(kotesMutans !== szul && !koszontoKulcsOk(kotesMutans), 'F3hn/b: az unió-kötés (satisfies) nélküli mutánson az őrszem BUKIK')
+  const castMutans = szul.replace('(KOSZONTO_RETEGEK as readonly RetegKulcs[]).includes(h.reteg)', '(KOSZONTO_RETEGEK as readonly string[]).includes(h.reteg)')
+  assert(castMutans !== szul && !koszontoKulcsOk(castMutans), 'F3hn/c: a string-castra visszaírt (régi) mutánson az őrszem BUKIK')
 
   const retegek = stripComments(read(SRC.retegek))
   assert(retegek.includes('export async function naplozNaptarNyomtatas(') && retegek.includes("koszonto: 'naptar.szuletesnapos_nyomtatas'") && retegek.includes("eves_terv: 'naptar.eves_terv_nyomtatas'") && retegek.includes('logAuditEvent('), 'F4: EGY naplózó akció logAuditEvent-tel, zárt kulcs-térképpel (koszonto + eves_terv)')
@@ -531,6 +638,25 @@ function kbemenet(over = {}) {
   }
   const ismeretlen = naplo.auditMondat({ id: 'y', mikor: '2026-09-05T10:00:00Z', muvelet: 'naptar.nincs_ilyen_kulcs', forras: 'esemeny' })
   assert(ismeretlen.includes('ismeretlen műveletet'), 'F7n: ismeretlen kulcsra a kimutatás nem talál ki jelentést — az őrszem tud pirosra váltani')
+
+  // F8 (2026-09-05 P3-utómunka): a két építő a ui-app barrelből is kijut (desktop),
+  //     és TISZTA modul marad — hook-os modul 'use client' nélkül a CI-n átmegy,
+  //     a deploy buildje bukik (ismert hibaosztály).
+  const dashIndex = stripComments(read(SRC.dashIndex))
+  const membersIndex = stripComments(read(SRC.membersIndex))
+  const rootIndex = stripComments(read(SRC.rootIndex))
+  const barrelOk = (d, m) =>
+    /export \{[^}]*\bbuildEvesNaptar\b[^}]*\} from '\.\/eves-naptar-print'/.test(d) &&
+    /export \{[^}]*\bbuildKoszontoNaptar\b[^}]*\} from '\.\/koszonto-naptar'/.test(m)
+  assert(barrelOk(dashIndex, membersIndex) && rootIndex.includes("export * from './dashboard'") && rootIndex.includes("export * from './members'"), 'F8: buildEvesNaptar (dashboard/index) és buildKoszontoNaptar (members/index) a barrelből elérhető, a gyökér-index mindkettőt továbbadja')
+  const dashMutans = dashIndex.replace(/export \{[^}]*\} from '\.\/eves-naptar-print'/, '')
+  assert(dashMutans !== dashIndex && !barrelOk(dashMutans, membersIndex), 'F8n: a barrel-export nélküli mutánson az őrszem BUKIK')
+  for (const [nev, f] of [['eves', SRC.eves], ['koszonto', SRC.koszonto]]) {
+    const src = stripComments(read(f))
+    assert(!/['"]use client['"]/.test(src) && !/from ['"]react['"]/.test(src) && !/\b(window|document|navigator|localStorage)\./.test(src) && !/\buse[A-Z]\w*\(/.test(src), `F8b: a(z) ${nev} építő TISZTA — nincs 'use client', React, hook, böngésző-API (barrelbe emelhető)`)
+  }
+  const koszImportok = [...read(SRC.koszonto).matchAll(/^import .* from '([^']+)'/gm)].map((m) => m[1])
+  assert(koszImportok.length === 1 && koszImportok[0] === '../dashboard/eves-naptar-print', 'F8c: a köszöntő építő egyetlen importja a szintén tiszta éves építő')
 }
 
 console.log(`\n${total - failedCount}/${total} őrszem zöld.`)

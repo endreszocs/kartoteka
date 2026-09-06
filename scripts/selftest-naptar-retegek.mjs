@@ -24,6 +24,19 @@
 //   S1   a csempe: getNaptarRetegek + kapcsolók localStorage try/catch + a hibák kirajzolva
 //   B1   tömeges bevitel: ismeretlen típusnév NEM néma 'egyeb' (figyelmeztető toast)
 //   U1   desktop tükör: 'evi' kibontás + ismetlodes_vege vágás + az 5 új típus címkéje
+//   ── 2026-09-05 P3-utómunka ──
+//   L1   kapcsolProgramAnyakonyvhoz: ISMÉTLŐDŐ sorozat anyakönyvezése TILOS (a toggleProgramDone
+//        mintája, közös üzenet); L1n negatív: a kapu kivéve → BUKIK
+//   L2   a csempe a dialógus megnyitása ELŐTT tilt (toast), az onSaved-út hibája toastban;
+//        a kártya gomb-címkéje az okot mondja
+//   L3   év-metszet (cal-print-11): a tiszta predikátum futtatva (dec 30–jan 2 → januárban
+//        látszik; jan 1 egynapos → látszik; előző évi egynapos → nem) + a getProgramsForYear
+//        szűrőjének alakja + id-dedupe; L3n negatív: a régi „kezdő nap éve" szabály → BUKIK
+//   L5   (ellenőrzés-ügynök) a program-recurrence.ts fejléce a VALÓSÁGOT mondja: horizonYear +
+//        ismetlodes_vege, a sorozat átnyúlik az évhatáron (nem „évhatáron túli ismétlődés nincs");
+//        L5n negatív: a régi fejléc-szöveg → BUKIK
+//   L4   a naptár-SQL fejléce + COMMENT ON FUNCTION a valóságot mondja (mind az 5 magán
+//        típus kizárva az ICS-ből), a törzs érintetlen
 
 import fs from 'node:fs'
 import os from 'node:os'
@@ -70,6 +83,11 @@ const SRC = {
   marriage: path.join(ROOT, 'apps/web/components/modals/marriage-dialog.tsx'),
   burial: path.join(ROOT, 'apps/web/components/modals/burial-dialog.tsx'),
   confirmation: path.join(ROOT, 'apps/web/components/modals/confirmation-dialog.tsx'),
+  // 2026-09-05 P3-utómunka
+  programActions: path.join(ROOT, 'apps/web/app/(dashboard)/programs/actions.ts'),
+  evMetszet: path.join(ROOT, 'apps/web/lib/calendar/program-ev-metszet.ts'),
+  card: path.join(ROOT, 'apps/web/components/dashboard/program-agenda-card.tsx'),
+  sql: path.join(ROOT, 'migration-docs/sql/2026-09-05-naptar-anyakonyv-szabadsag-nevnap.sql'),
 }
 const read = (f) => fs.readFileSync(f, 'utf8')
 
@@ -310,6 +328,100 @@ function feedOk(mod) {
   for (const tipus of ['kereszteles', 'eskuvo', 'konfirmacio', 'temetes', 'szabadsag']) {
     assert(new RegExp(`${tipus}: '[^']+'`).test(u) && new RegExp(`${tipus}: '#[0-9a-f]{6}'`).test(u), `U1: a desktop tükörben a(z) '${tipus}' típus címkéje és színe megvan`)
   }
+}
+
+// ---------------------------------------------------------------------------
+// L · P3-utómunka (2026-09-05): ismétlődő sorozat anyakönyvezése TILOS;
+//     év-metszet a program-betöltésben; a naptár-SQL kommentje a valóságot mondja
+// ---------------------------------------------------------------------------
+{
+  const aNyers = read(SRC.programActions)
+  const a = kommentNelkul(aNyers)
+  const types = kommentNelkul(read(SRC.types))
+  assert(/export const ISMETLODO_SOROZAT_ANYAKONYV_HIBA =/.test(types), 'L1: az ismétlődő-sorozat üzenet EGY forrásból (naptar-retegek-types.ts) — a szerver és a felület ugyanazt mondja')
+
+  /** A szerver-kapu mércéje: a link-akció a sorozat-jelzőt LEKÉRI és az UPDATE előtt tilt rá. */
+  function anyakonyvKapuOk(kod) {
+    const k = kommentNelkul(kod)
+    const fn = k.slice(k.indexOf('export async function kapcsolProgramAnyakonyvhoz'), k.indexOf('export async function bontProgramAnyakonyv'))
+    return /\.select\('id, tipus, anyakonyv_id, ismetlodes_tipus'\)/.test(fn)
+      && /if \(p\.ismetlodes_tipus\) \{\s*return \{ ok: false, error: ISMETLODO_SOROZAT_ANYAKONYV_HIBA \}/.test(fn)
+      && fn.indexOf('if (p.ismetlodes_tipus)') < fn.indexOf('.update({')
+  }
+  assert(anyakonyvKapuOk(aNyers), 'L1: kapcsolProgramAnyakonyvhoz — ISMÉTLŐDŐ sorozatra (ismetlodes_tipus) az összekötés TILOS, az UPDATE előtt, a közös üzenettel (a toggleProgramDone mintája)')
+  {
+    const mutans = aNyers.replace(/\s*if \(p\.ismetlodes_tipus\) \{\s*return \{ ok: false, error: ISMETLODO_SOROZAT_ANYAKONYV_HIBA \}\s*\}/, '')
+    if (mutans === aNyers) assert(false, 'L1n: a kapu-mutáns NEM különbözik — a negatív asszert vak')
+    else assert(!anyakonyvKapuOk(mutans), 'L1n: a kapu nélküli (régi) mutánson az őrszem BUKIK')
+  }
+  assert(/if \(done\) \{[\s\S]{0,300}\.select\('ismetlodes_tipus'\)[\s\S]{0,300}ismetlodes_tipus\) \{\s*return \{\s*error:/.test(a), 'L1: a toggleProgramDone kapuja változatlanul áll (a két kapu együtt fail-closed)')
+
+  const s = kommentNelkul(read(SRC.scheduler))
+  assert(/if \(real\.ismetlodes_tipus\) \{\s*toast\.error\(ISMETLODO_SOROZAT_ANYAKONYV_HIBA/.test(s) && s.indexOf('if (real.ismetlodes_tipus)') < s.indexOf('setAnyakonyvezes({ tabla:'), 'L2: a csempe az anyakönyvi dialógus megnyitása ELŐTT tilt (nem keletkezik kötetlen anyakönyvi sor), toastban, ugyanazzal az üzenettel')
+  assert(/if \(!res\.ok\) \{[\s\S]{0,400}toast\.error\([\s\S]{0,300}mentve maradt, csak a programhoz nincs hozzákötve/.test(s), 'L2: az onSaved-út hibája toastban látszik, és kimondja: a bejegyzés mentve, a kötés nem jött létre')
+  const card = kommentNelkul(read(SRC.card))
+  assert(/title=\{p\.ismetlodes_tipus \? ISMETLODO_SOROZAT_ANYAKONYV_HIBA :/.test(card), 'L2: a kártya Anyakönyvezés gombja sorozatnál a tiltás okát írja a címkéjébe')
+
+  // L3 · év-metszet: a tiszta predikátum FUTTATVA + a szerver-akció szűrőjének alakja
+  const evMetszetNyers = read(SRC.evMetszet)
+  const betoltMetszet = (forras) => require_(ir('evmetszet', t(forras)))
+  const em = betoltMetszet(evMetszetNyers)
+  const tabor = { datum: '2025-12-30', datum_vege: '2026-01-02' }
+  assert(em.programMetsziEvet(tabor, 2026) === true, 'L3: dec. 30. – jan. 2. tábor → 2026-ban LÁTSZIK (az intervallum metszi az évet)')
+  assert(em.programMetsziEvet(tabor, 2025) === true, 'L3: ugyanaz a tábor 2025-ben is látszik (dec. 30–31.)')
+  assert(em.programMetsziEvet({ datum: '2026-01-01', datum_vege: null }, 2026) === true, 'L3: jan. 1-jei egynapos program → látszik')
+  assert(em.programMetsziEvet({ datum: '2025-12-31', datum_vege: null }, 2026) === false, 'L3: előző évi egynapos program → NEM látszik')
+  assert(em.programMetsziEvet({ datum: '2026-12-31' }, 2026) === true && em.programMetsziEvet({ datum: '2027-01-01' }, 2026) === false, 'L3: az év utolsó napja még igen, a következő év első napja már nem')
+  assert(em.programMetsziEvet({ datum: '2025-12-30', datum_vege: '2025-12-20' }, 2026) === false, 'L3: hibás (kezdő előtti) záró nap → a kezdő nap dönt (nem szivárog át)')
+  const szuro = em.programEvMetszetSzuro(2026)
+  assert(szuro.datumLegfeljebb === '2026-12-31' && szuro.vagySzuro === 'datum_vege.gte.2026-01-01,datum.gte.2026-01-01', 'L3: a PostgREST-alak: datum ≤ 2026-12-31 ÉS (datum_vege ≥ 2026-01-01 VAGY datum ≥ 2026-01-01)')
+  {
+    const mutans = evMetszetNyers.replace('return p.datum <= utolso && programZaroNapja(p) >= elso', 'return p.datum <= utolso && p.datum >= elso')
+    if (mutans === evMetszetNyers) assert(false, 'L3n: a predikátum-mutáns NEM különbözik — a negatív asszert vak')
+    else assert(betoltMetszet(mutans).programMetsziEvet(tabor, 2026) === false, 'L3n: a RÉGI (kezdő nap éve) szabállyal a tábor eltűnik januárból — az őrszem tud pirosra váltani')
+  }
+  /** A szerver-akció mércéje: az első lekérdezés a metszet-szűrőt használja, nem a kezdő nap évét. */
+  function evSzuroOk(kod) {
+    const k = kommentNelkul(kod)
+    const fn = k.slice(k.indexOf('export async function getProgramsForYear'), k.indexOf('export async function getCalendarFeedToken'))
+    return /const evSzuro = programEvMetszetSzuro\(year\)/.test(fn)
+      && /\.lte\('datum', evSzuro\.datumLegfeljebb\)\s*\.or\(evSzuro\.vagySzuro\)/.test(fn)
+      && !/\.gte\('datum', `\$\{year\}-01-01`\)/.test(fn)
+      && /egyszer\.set\(p\.id, p\)/.test(fn)
+  }
+  assert(evSzuroOk(aNyers), 'L3: getProgramsForYear — az év METSZETE (lte datum + or datum_vege/datum ≥ év eleje) a közös segédből, és id szerinti dedupe a két lekérdezés uniójára')
+  {
+    const mutans = aNyers.replace(/\.lte\('datum', evSzuro\.datumLegfeljebb\)\s*\.or\(evSzuro\.vagySzuro\)/, ".gte('datum', `${year}-01-01`)\n        .lte('datum', `${year}-12-31`)")
+    if (mutans === aNyers) assert(false, 'L3n: a szűrő-mutáns NEM különbözik — a negatív asszert vak')
+    else assert(!evSzuroOk(mutans), 'L3n: a RÉGI (kezdő nap éve) szűrőre visszaírt mutánson az őrszem BUKIK')
+  }
+
+  // L4 · a naptár-SQL kommentje a törzshöz igazodott (nem fordítva)
+  const sql = read(SRC.sql)
+  const fejlec = sql.slice(0, sql.indexOf('-- 0) Első-futás-őr'))
+  assert(fejlec.length > 0 && !/gyülekezeti ICS-feed: CSAK a szabadság kizárva/.test(fejlec) && /gyülekezeti ICS-feed: UGYANÚGY szabadság \+ mind a 4 anyakönyvi típus/.test(fejlec), 'L4: a naptár-SQL fejléce a valóságot mondja — az ICS-feedből mind az 5 magán típus kizárva (nem „csak a szabadság")')
+  assert(/UTÓLAGOS KOMMENT-JAVÍTÁS/.test(fejlec) && /ÚJRAFUTTATÁS NEM SZÜKSÉGES/.test(fejlec), 'L4: a fejléc kimondja: 2026-09-05 utólagos komment-javítás, újrafuttatás nem szükséges')
+  const fnComment = sql.match(/COMMENT ON FUNCTION public\.public_calendar_feed\(uuid\) IS\s*'([^']*)'/)?.[1] ?? ''
+  assert(/szabadsag, kereszteles, eskuvo, konfirmacio, temetes/.test(fnComment) && !/szabadság-típus NÉLKÜL/.test(fnComment), 'L4: a public_calendar_feed COMMENT ON FUNCTION szövege az 5 magán típust nevezi meg')
+  const torzs = sql.slice(sql.indexOf('CREATE OR REPLACE FUNCTION public.public_calendar_feed'), sql.indexOf('COMMENT ON FUNCTION public.public_calendar_feed'))
+  assert(/AND p\.tipus NOT IN \('szabadsag','kereszteles','eskuvo','konfirmacio','temetes'\);/.test(torzs), 'L4: a SQL-TÖRZS érintetlen — a feed WHERE-je továbbra is mind az 5 típust kizárja (a komment igazodott a törzshöz, nem fordítva)')
+}
+
+// ── L5 · (ellenőrzés-ügynök, 2026-09-05) a program-recurrence.ts fejléce a VALÓSÁGOT mondja ──
+// A törzs 2026-08-02 (horizonYear) és 2026-08-26 (ismetlodes_vege) óta átnyúlik az
+// évhatáron; a fejléc még „évhatáron túli ismétlődés nincs"-et állított — egy
+// következő fejlesztő ebből téves invariánst olvasna ki (a cal-print-11 kör tanulsága).
+{
+  const rec = read(SRC.recurrence)
+  const fejlec = rec.slice(0, rec.indexOf('const STEP_DAYS'))
+  const torzs = kommentNelkul(rec)
+  const fejlecOk = (f) =>
+    /horizonYear/.test(f) && /ismetlodes_vege/.test(f) && /átnyúlik az évhatáron/.test(f) && !/„örök" ismétlődés nincs/.test(f) && !/nincs hozzá záró-dátum mező sem/.test(f)
+  assert(fejlecOk(fejlec), 'L5: a fejléc a horizonYear-t és az ismetlodes_vege-t írja le — nem az elavult „évhatáron túli ismétlődés nincs" szabályt')
+  assert(/horizonYear\?: number/.test(torzs) && /p\.ismetlodes_vege && p\.ismetlodes_vege < horizon/.test(torzs), 'L5: a törzs valóban horizonYear-t és ismetlodes_vege-t használ (a fejléc ehhez igazodott, nem fordítva)')
+  const mutans = fejlec.replace(/Záró nap nélküli sorozat tehát átnyúlik az évhatáron[^\n]*\n[^\n]*\n/, 'Évhatáron túli,\n *    „örök" ismétlődés nincs (nincs hozzá záró-dátum mező sem).\n')
+  if (mutans === fejlec) assert(false, 'L5n: a fejléc-mutáns NEM különbözik — a negatív asszert vak')
+  else assert(!fejlecOk(mutans), 'L5n: a régi fejléc-szöveggel az őrszem BUKIK')
 }
 
 console.log(`\nÖsszesen: ${total}, hibás: ${failedCount}`)

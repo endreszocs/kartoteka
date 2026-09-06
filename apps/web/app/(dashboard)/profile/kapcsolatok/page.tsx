@@ -1,5 +1,6 @@
 import { redirect } from 'next/navigation'
 import { getEffectiveAccessContext } from '@/lib/auth/effective-access'
+import { lelkesziSzerepbenE } from '@/lib/profile-roles/aktiv-szerep'
 import { listMyCongregationAssignments } from './actions'
 import { PastorAssignmentsClient } from '@/components/profile/pastor-assignments-client'
 
@@ -13,7 +14,11 @@ export default async function KapcsolatokPage() {
 
   if (!access.user || !access.profile) redirect('/login')
 
-  if (access.role !== 'lelkesz') {
+  // 2026-09-05 (P3-utómunka): az oldal eddig a legacy `profiles.role` skalárból
+  // döntött (`access.role !== 'lelkesz'`), a profil-dialógus linkje és az akciók
+  // viszont az AKTÍV szerepből — a könyvelői profilra váltott lelkész beért az
+  // oldalra, ahol minden akció elutasította. EGY feloldó mind a négy helyen.
+  if (!lelkesziSzerepbenE(access)) {
     redirect('/dashboard')
   }
 

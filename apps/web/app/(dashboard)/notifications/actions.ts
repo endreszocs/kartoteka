@@ -36,8 +36,14 @@ function canManageAdminAccessRequest(role: string | null | undefined, esperes: b
  * gombpár addig maradt a buborékon, amíg a lelkész archiválta (a gombok
  * pedig már csak „A kérelem már elbírálásra került." hibát adtak).
  *
- * A kérelmező (rendszergazda) FRISS sora nem érintett (`user_id ≠ kérelmező`);
- * az RLS amúgy is a saját sorokra szűkíti a frissítést.
+ * A KÉRELMEZŐ (rendszergazda) FRISS döntés-sora SZÁNDÉKOSAN nincs itt
+ * (`user_id ≠ kérelmező`): azt az `insertErtesites` már BESZÚRÁSKOR
+ * `megoldva: true`-val írja (2026-09-05, P3-utómunka, bírálói P2 — a sor MAGA a
+ * döntés, nincs mire várni; egy szabály a visszatöltéssel). Ezért itt nem kell
+ * és NEM SZABAD hozzányúlni: a cím-előtag tartalék-ága különben a kérelmező
+ * „Hozzáférés elutasítva" címét is átírná („Megoldva — … (elutasítva)"), ha az
+ * elbíráló globális jogú (az `ertesitesek` RLS-e a saját sor MELLETT a globális
+ * hozzáférésűnek is enged), a sima lelkész pedig az RLS miatt nem is látja.
  *
  * Az `ertesitesek.megoldva` oszlop csak a 2026-08-11-ertesites-megoldva.sql
  * után létezik — hiányzó oszlopnál a felület által is értett cím-előtag a
@@ -95,15 +101,19 @@ export async function approveAdminAccess(requestId: string, hours: number = 24) 
   if (request.congregation_id !== congId) return { error: 'Nincs jogosultsága ehhez a kérelemhez.' }
 
   // Jóváhagyás
+  const dontesIdeje = new Date().toISOString()
   const expiresAt = new Date(Date.now() + hours * 60 * 60 * 1000).toISOString()
   const { error } = await supabase.from('admin_access_requests').update({
-    status: 'approved', approved_at: new Date().toISOString(), expires_at: expiresAt,
+    status: 'approved', approved_at: dontesIdeje, expires_at: expiresAt,
   }).eq('id', requestId)
   if (error) return { error: `Hiba: ${error.message}` }
 
   // Értesítés a kérelmezőnek. 2026-09-05: `congregation_id` is megy — enélkül az
   // `ertesitesek_szint_insert` policy (congregation_id IS NOT NULL) sima
   // lelkésznél elutasította a beszúrást, és a rendszergazda SOHA nem kapta meg.
+  // 2026-09-05 (P3-utómunka, bírálói P2): a sor MAGA A DÖNTÉS → már beszúráskor
+  // `megoldva` (a tárolt jel EGY szabály szerint, mint az SQL-visszatöltés után);
+  // a felület enélkül is tudja (success + kérelem-hivatkozás = döntés-sor).
   const ertesites = await insertErtesites(
     supabase,
     {
@@ -114,6 +124,8 @@ export async function approveAdminAccess(requestId: string, hours: number = 24) 
       uzenet: `A hozzáférési kérelme jóváhagyásra került. ${hours} órán belül hozzáférhet a gyülekezet adataihoz.`,
       olvasva: false,
       admin_request_id: request.id,
+      megoldva: true,
+      megoldva_at: dontesIdeje,
       ...feladoMezok('gyulekezet', congNev, congId),
     },
     { forras: 'admin-access-jovahagyas' },
@@ -144,11 +156,13 @@ export async function denyAdminAccess(requestId: string) {
   if (request.status !== 'pending') return { error: 'A kérelem már elbírálásra került.' }
   if (request.congregation_id !== congId) return { error: 'Nincs jogosultsága ehhez a kérelemhez.' }
 
+  const dontesIdeje = new Date().toISOString()
   const { error } = await supabase.from('admin_access_requests').update({
-    status: 'denied', denied_at: new Date().toISOString(),
+    status: 'denied', denied_at: dontesIdeje,
   }).eq('id', requestId)
   if (error) return { error: `Hiba: ${error.message}` }
 
+  // A sor MAGA A DÖNTÉS → már beszúráskor `megoldva` (lásd a jóváhagyás ágát).
   const ertesites = await insertErtesites(
     supabase,
     {
@@ -159,6 +173,8 @@ export async function denyAdminAccess(requestId: string) {
       uzenet: 'A hozzáférési kérelme elutasításra került.',
       olvasva: false,
       admin_request_id: request.id,
+      megoldva: true,
+      megoldva_at: dontesIdeje,
       ...feladoMezok('gyulekezet', congNev, congId),
     },
     { forras: 'admin-access-elutasitas' },

@@ -9,6 +9,7 @@ import { logAuditEvent } from '@/lib/audit/log'
 import { feladoMezok } from '@/lib/notifications/felado'
 import { insertErtesites } from '@/lib/notifications/ertesites-insert'
 import { getProfileDisplayNames } from '@/lib/profiles/officials'
+import { lelkesziSzerepbenE } from '@/lib/profile-roles/aktiv-szerep'
 
 /**
  * Lelkészi jóváhagyási workflow actions.
@@ -54,9 +55,9 @@ async function getPastorApprovalScope(): Promise<
   const userId = access.user.id
 
   // Az AKTÍV szerepkör dönt; a legacy skalár csak akkor, ha nincs profile_roles sor.
-  const activeRole = access.activeProfileRole?.role ?? null
-  const isPastor = activeRole ? activeRole === 'lelkesz' : access.role === 'lelkesz'
-  if (!isPastor) {
+  // 2026-09-05 (P3): a szabály a közös `lelkesziSzerepbenE`-ben él — ugyanabból
+  // dönt a /profile/kapcsolatok oldal, a /profile kártya és a dialógus linkje.
+  if (!lelkesziSzerepbenE(access)) {
     return {
       error:
         'Ezt a hozzáférési kérést csak a gyülekezet lelkésze kezelheti. ' +

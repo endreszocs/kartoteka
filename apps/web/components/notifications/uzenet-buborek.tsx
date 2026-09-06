@@ -177,8 +177,11 @@ export function UzenetBuborek({
         </DropdownMenu>
       </div>
 
-      {/* ── „A baj elmúlt" zöld sáv ── */}
-      {sor.megoldva ? (
+      {/* ── „A baj elmúlt" zöld sáv — NEM a döntés-soron: a kérelmező „Hozzáférés
+          elutasítva" értesítésén az „Ez a baj azóta elmúlt" önellentmondó volna
+          (bírálói P3). A Megoldva pill marad; a `dontesSor` a szerver EGY
+          szabályából jön (megoldasLevezetes), itt nincs második szabály. ── */}
+      {sor.megoldva && !sor.dontesSor ? (
         <p className="mt-2.5 flex items-start gap-2 rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-sm leading-relaxed text-foreground">
           <CheckCircle2 className="mt-0.5 size-4 shrink-0 text-emerald-700 dark:text-emerald-300" aria-hidden />
           <span className="min-w-0 flex-1">

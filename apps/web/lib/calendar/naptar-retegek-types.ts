@@ -117,3 +117,15 @@ export const PROGRAM_TIPUS_ANYAKONYV_TABLA: Record<'kereszteles' | 'eskuvo' | 'k
   konfirmacio: 'konfirmalas',
   temetes: 'temetes',
 }
+
+/**
+ * 2026-09-05 (P3-utómunka): ISMÉTLŐDŐ sorozat anyakönyvezésének tiltó üzenete —
+ * EGY forrásból mondja a szerver (kapcsolProgramAnyakonyvhoz) és a felület
+ * (program-scheduler, a dialógus megnyitása ELŐTT). A kibontott alkalmak a
+ * sorozat EGYETLEN adatbázis-sorát öröklik: az összekötés az ÖSSZES alkalmat
+ * jelölné teljesítettnek/anyakönyvezettnek — ugyanaz a hibaosztály, amit a
+ * toggleProgramDone már tilt.
+ */
+export const ISMETLODO_SOROZAT_ANYAKONYV_HIBA =
+  'Ismétlődő sorozat nem anyakönyvezhető: az összekötés a sorozat ÖSSZES alkalmát teljesítettnek jelölné. ' +
+  'Hozz létre erre a napra egy egyedi (nem ismétlődő) alkalmat, és azt kösd az anyakönyvi bejegyzéshez.'

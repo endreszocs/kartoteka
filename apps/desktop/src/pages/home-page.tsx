@@ -160,7 +160,12 @@ export function HomePage() {
 
     const today = new Date()
     const curYear = today.getFullYear()
-    // 14 napos program-ablak — évhatárnál a következő év elejét is kérjük
+    // 14 napos program-ablak — évhatárnál a következő év elejét is kérjük.
+    // Az ELŐZŐ évet NEM kell külön kérni (bíráló P2, 2026-09-05): a
+    // `getLocalPrograms` év-szűrője az intervallum METSZETE — a dec. 27. –
+    // jan. 5. szabadság januárban a tárgyév sorai közt jön —, és a korábbi
+    // években indult ismétlődő sorozatokat is hozza; a kibontó ablak-szűrője
+    // a záró napot nézi, így a már elkezdődött alkalom benne marad.
     const windowEnd = new Date(today.getTime() + 14 * 86400000)
     const needNextYear = windowEnd.getFullYear() !== curYear
 
@@ -203,8 +208,13 @@ export function HomePage() {
       )
 
       // Programok: a teljes év(ek) sorai → ismétlődés-kibontás + 14 napos ablak
-      // (web-paritás: a heti/kétheti/havi alkalmak korábban nem jelentek meg)
-      const programEntries: UpcomingProgramEntry[] = [...programsThisYear, ...programsNextYear].map((p) => ({
+      // (web-paritás: a heti/kétheti/havi alkalmak korábban nem jelentek meg).
+      // 2026-09-05: ugyanaz a sor MINDKÉT évi lekérdezésből jöhet (az évhatáron
+      // átnyúló többnapos alkalom, a korábbi években indult sorozat) — id
+      // szerint EGYSZER tartjuk meg, különben a kibontó megduplázná az alkalmait
+      // (a webes getProgramsForYear `egyszer` Map-jének tükre).
+      const egyszer = new Map([...programsThisYear, ...programsNextYear].map((p) => [p.id, p] as const))
+      const programEntries: UpcomingProgramEntry[] = [...egyszer.values()].map((p) => ({
         id: p.id,
         cim: p.cim,
         datum: p.datum,
@@ -215,6 +225,9 @@ export function HomePage() {
         tipus: p.tipus,
         prioritas: p.prioritas,
         ismetlodes_tipus: p.ismetlodes_tipus,
+        // 2026-09-05 (P3-utómunka): a sorozat záró napja is átmegy — a weben
+        // lezárt heti sorozat a gépen sem fut tovább (a tükör v34 óta tárolja).
+        ismetlodes_vege: p.ismetlodes_vege,
         egyedi_tipus_nev: p.egyedi_tipus_nev,
         egyedi_emoji: p.egyedi_emoji,
         teljesitett: p.teljesitett === 1,

@@ -15,6 +15,8 @@
 import type { CSSProperties } from 'react'
 
 import type { StatusIntent } from '@/components/admin/_shared/status-badge'
+import { PROFILE_STATUS_LABELS } from '@/lib/profile-roles/labels'
+import { isProfileStatus, type ProfileStatus } from '@/lib/types/auth'
 
 export function getInitials(name: string | null, email: string | null): string {
   const source = name || email || '?'
@@ -30,38 +32,31 @@ export interface UserStatusMeta {
   accent: string
 }
 
+/**
+ * 2026-09-05 (P3-utómunka): a státusz-látvány a `ProfileStatus` unióra
+ * KIMERÍTŐ térkép — egy új DB-érték (lib/types/auth.ts) itt is fordítási
+ * hibával követel színt, nem futásidőben esik a semleges ágra. A CÍMKE nem itt
+ * él: a `PROFILE_STATUS_LABELS` az egyetlen forrás (eddig a „deleted" itt
+ * „Törölve", a profilban „Törölt" volt — két igazság ugyanarra a sorra).
+ */
+const USER_STATUS_VISUALS: Record<ProfileStatus, Omit<UserStatusMeta, 'label'>> = {
+  active: { intent: 'success', accent: 'border-l-[3px] border-l-emerald-400 dark:border-l-emerald-600' },
+  pending: { intent: 'warning', accent: 'border-l-4 border-l-amber-400 dark:border-l-amber-500' },
+  rejected: { intent: 'danger', accent: 'border-l-[3px] border-l-rose-400 dark:border-l-rose-600' },
+  deleted: { intent: 'neutral', accent: 'border-l-[3px] border-l-border' },
+}
+
+/**
+ * A paraméter szándékosan `string | null` (a `UserWithScope.status` a DB nyers
+ * értékét hordozza): az ismeretlen érték NEM kap hamis címkét — a nyers kulcs
+ * jelenik meg semleges színnel, mint a `getProfileStatusLabel`-nél.
+ */
 export function getUserStatusMeta(status: string | null): UserStatusMeta {
-  switch (status) {
-    case 'active':
-      return {
-        label: 'Aktív',
-        intent: 'success',
-        accent: 'border-l-[3px] border-l-emerald-400 dark:border-l-emerald-600',
-      }
-    case 'pending':
-      return {
-        label: 'Jóváhagyásra vár',
-        intent: 'warning',
-        accent: 'border-l-4 border-l-amber-400 dark:border-l-amber-500',
-      }
-    case 'rejected':
-      return {
-        label: 'Elutasítva',
-        intent: 'danger',
-        accent: 'border-l-[3px] border-l-rose-400 dark:border-l-rose-600',
-      }
-    case 'deleted':
-      return {
-        label: 'Törölve',
-        intent: 'neutral',
-        accent: 'border-l-[3px] border-l-border',
-      }
-    default:
-      return {
-        label: status || 'Ismeretlen',
-        intent: 'neutral',
-        accent: 'border-l-[3px] border-l-border',
-      }
+  if (isProfileStatus(status)) return { label: PROFILE_STATUS_LABELS[status], ...USER_STATUS_VISUALS[status] }
+  return {
+    label: status || 'Ismeretlen',
+    intent: 'neutral',
+    accent: 'border-l-[3px] border-l-border',
   }
 }
 

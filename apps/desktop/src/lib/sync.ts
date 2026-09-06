@@ -47,6 +47,7 @@ import { getDesktopSupabase } from './supabase'
 import { isOnlineWithSession } from './use-session-online'
 import { getVerifiedSession } from './verified-session'
 import { dbExecute, dbExecuteMany, dbSelect, getSetting, setSetting, type SqlParam } from './local-db'
+import { programPublikusTukorErtek } from './program-tipusok'
 import {
   OUTBOX_MAX_PROBA,
   notifyLocalWriteCommitted,
@@ -583,6 +584,11 @@ export async function updateOwnProfile(
           WHERE id = ?3`,
         [srv.revision ?? expectedRevision + 1, srv.updated_at ?? null, userId],
       )
+      // 2026-09-05 (P3-utómunka): az ONLINE mentés is helyi írás — a regiszter
+      // összevont köre (függő sorok felküldése + light pull) innen is induljon,
+      // ne csak az outbox-ágról. Az offline ág az `enqueueOutbox`-on át jelez,
+      // ezért itt nincs dupla jelzés.
+      notifyLocalWriteCommitted()
       return {
         queuedToOutbox: false,
         conflict: false,
@@ -2600,6 +2606,10 @@ export async function createWorklogEntry(
         // A pull-hiba nem kritikus: a sor létrejött a szerveren; a következő
         // sync lehozza. A user látja a sikert a visszatérési ID-ban.
       }
+      // 2026-09-05 (P3-utómunka): online mentés után is a regiszter összevont
+      // köre (függő sorok + light pull) — az offline ág az `enqueueOutbox`-ból
+      // jelez, itt nincs dupla.
+      notifyLocalWriteCommitted()
 
       return { id: newId, queuedToOutbox: false }
     } catch (err) {
@@ -2769,6 +2779,9 @@ export async function updateWorklogEntry(
         `UPDATE munkanaplo_local SET revision = ?1, updated_at = ?2 WHERE id = ?3`,
         [srv.revision, srv.updated_at, entryId],
       )
+      // 2026-09-05 (P3-utómunka): online mentés → a regiszter összevont köre
+      // (az offline ág az `enqueueOutbox`-ból jelez — nincs dupla).
+      notifyLocalWriteCommitted()
       return { queuedToOutbox: false, conflict: false, newRevision: srv.revision }
     } catch {
       // Fall through outboxra
@@ -2825,6 +2838,9 @@ export async function deleteWorklogEntry(
         await pullWorklogOfOwnCongregation(userId, 'delta')
         return { queuedToOutbox: false, conflict: true }
       }
+      // 2026-09-05 (P3-utómunka): a helyi `deleted = 1` + a szerver-oldali siker
+      // után a regiszter összevont köre (az offline ág az outboxból jelez).
+      notifyLocalWriteCommitted()
       return { queuedToOutbox: false, conflict: false }
     } catch {
       // Fall through az outboxra
@@ -2925,6 +2941,9 @@ export async function updateSzemelyEntry(
         `UPDATE szemely_local SET revision = ?1, updated_at = ?2 WHERE id = ?3`,
         [srv.revision, srv.updated_at, szemelyId],
       )
+      // 2026-09-05 (P3-utómunka): online mentés → a regiszter összevont köre
+      // (az offline/hiba ág a `fallbackToOutbox` → `enqueueOutbox`-ból jelez).
+      notifyLocalWriteCommitted()
       return {
         queuedToOutbox: false,
         conflict: false,
@@ -6137,8 +6156,41 @@ export interface ProgramLocalRow {
   szin: string | null
   /** P2 #12: optimistic concurrency support. */
   revision: number
+  /**
+   * 2026-09-05 (P3-utómunka, desktop 2. fázis): a sorozat utolsó napja
+   * (YYYY-MM-DD) — a webes `ismetlodes_vege` tükre; e nélkül a weben lezárt
+   * heti sorozat a gépen tovább futott.
+   */
+  ismetlodes_vege: string | null
+  /**
+   * 2026-09-05: nyilvános (a gyülekezet weboldalán megjelenhet). SQLite
+   * INTEGER 0/1 — MAGÁN típuson (szabadság + anyakönyvi) MINDIG 0, a
+   * tükörbe írás és az olvasás is a `programPublikusTukorErtek` szabályát
+   * tartja (fail-closed).
+   */
+  publikus: number
+  /** 2026-09-05: a tervezett anyakönyvi alkalom kapcsolata a megtörtént sorral. */
+  anyakonyv_tabla: string | null
+  anyakonyv_id: number | null
   created_at: string | null
   updated_at: string | null
+}
+
+/** A tükör oszloplistája — a SELECT-ek és a pull-INSERT EGY forrásból. */
+const PROGRAM_LOCAL_OSZLOPOK = `id, congregation_id, cim, datum, datum_vege, ido_kezdes, ido_befejezes,
+            helyszin, tipus, prioritas, ismetlodes_tipus, egyedi_tipus_nev, egyedi_emoji,
+            megjegyzes, teljesitett, teljesites_datum, letrehozta_id, letrehozta_nev,
+            leiras, szin, revision, ismetlodes_vege, publikus, anyakonyv_tabla, anyakonyv_id,
+            created_at, updated_at`
+
+/**
+ * Olvasás-oldali normalizálás: a magán típus `publikus` mezője a tükörből
+ * kiolvasva is 0 — ha egy régebbi (v34 előtti pull) vagy egy kézi sor mást
+ * tartalmazna, a felület akkor sem láthat „nyilvános" jelölést rajta.
+ */
+function normalizaltProgramSor(row: ProgramLocalRow): ProgramLocalRow {
+  const publikus = programPublikusTukorErtek(row.tipus, row.publikus)
+  return publikus === row.publikus ? row : { ...row, publikus }
 }
 
 /** Programok full-pull a Supabase-ből. */
@@ -6215,18 +6267,21 @@ export async function pullProgramsOfOwnCongregation(userId: string): Promise<{
       (r.leiras as string | null) ?? null,
       (r.szin as string | null) ?? null,
       Number(r.revision ?? 0),
+      // 2026-09-05 (P3-utómunka): sorozat-vég, nyilvános jelölés (magán típuson
+      // MINDIG 0 — fail-closed, akármit mond a szerver), anyakönyvi kapcsolat.
+      (r.ismetlodes_vege as string | null) ?? null,
+      programPublikusTukorErtek(String(r.tipus ?? 'egyeb'), r.publikus as boolean | null),
+      (r.anyakonyv_tabla as string | null) ?? null,
+      r.anyakonyv_id == null ? null : Number(r.anyakonyv_id),
       (r.created_at as string | null) ?? null,
       (r.updated_at as string | null) ?? null,
     ])
   }
   await dbExecuteMany(
     `INSERT INTO gyulekezeti_programok_local
-         (id, congregation_id, cim, datum, datum_vege, ido_kezdes, ido_befejezes,
-          helyszin, tipus, prioritas, ismetlodes_tipus, egyedi_tipus_nev, egyedi_emoji,
-          megjegyzes, teljesitett, teljesites_datum, letrehozta_id, letrehozta_nev,
-          leiras, szin, revision, created_at, updated_at, synced_at)
+         (${PROGRAM_LOCAL_OSZLOPOK}, synced_at)
        VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18,
-               ?19, ?20, ?21, ?22, ?23, datetime('now'))`,
+               ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27, datetime('now'))`,
     programBatch,
   )
 
@@ -6236,37 +6291,40 @@ export async function pullProgramsOfOwnCongregation(userId: string): Promise<{
   return { pulledRows: rows.length, mode: 'full', lastPullIso: nowIso }
 }
 
-/** Közelgő programok (mai + következő N napban, NEM teljesített). */
-export async function getLocalUpcomingPrograms(
-  userId: string,
-  daysAhead = 14,
-  limit = 10,
-): Promise<ProgramLocalRow[]> {
-  const profile = await getLocalOwnProfile(userId)
-  if (!profile?.congregation_id) return []
-
-  const today = new Date().toISOString().slice(0, 10)
-  const future = new Date(Date.now() + daysAhead * 24 * 60 * 60 * 1000)
-    .toISOString()
-    .slice(0, 10)
-
-  return dbSelect<ProgramLocalRow>(
-    `SELECT id, congregation_id, cim, datum, datum_vege, ido_kezdes, ido_befejezes,
-            helyszin, tipus, prioritas, ismetlodes_tipus, egyedi_tipus_nev, egyedi_emoji,
-            megjegyzes, teljesitett, teljesites_datum, letrehozta_id, letrehozta_nev,
-            leiras, szin, revision, created_at, updated_at
-       FROM gyulekezeti_programok_local
-      WHERE congregation_id = ?1
-        AND datum >= ?2
-        AND datum <= ?3
-        AND teljesitett = 0
-      ORDER BY datum, COALESCE(ido_kezdes, '00:00')
-      LIMIT ?4`,
-    [profile.congregation_id, today, future, limit],
-  )
-}
-
-/** Programok lista — adott évre. */
+/**
+ * Programok lista — adott évre. A kezdőlap közelgő-agendájának EGYETLEN
+ * adatforrása: az ismétlődés-kibontás és a 14 napos ablak-szűrés az ui-app
+ * `expandUpcomingProgramOccurrences`-ében él (a ZÁRÓ nap dönt, nem a kezdő —
+ * a már elkezdődött többnapos alkalom benne marad).
+ *
+ * 2026-09-05 (bíráló P3): a korábbi `getLocalUpcomingPrograms` — az ablak-
+ * szabály SQL-oldali MÁSODIK példánya — TÖRÖLVE: egyetlen felület sem hívta, az
+ * őre holt kódot védett. Egy szabály, egy hely.
+ *
+ * 2026-09-05 (cal-print-11, bíráló P2 — desktop-paritás): a program akkor
+ * tartozik az évhez, ha az INTERVALLUMA metszi az évet — a kezdő nap legfeljebb
+ * az év utolsó napja, ÉS a záró VAGY a kezdő nap legalább az év első napja.
+ * A webes szabály tükre (apps/web/lib/calendar/program-ev-metszet.ts —
+ * `programEvMetszetSzuro`). Korábban `datum >= év-01-01` volt: az előző év
+ * végén kezdődő, NEM ismétlődő, többnapos alkalom (dec. 30. – jan. 2. tábor)
+ * januárban SEHOL nem látszott az asztali appban.
+ *
+ * ⚠️ SZÁNDÉKOSAN NEM `COALESCE(datum_vege, datum) >= ?2`: a kezdő nap ELŐTTI,
+ * hibás záró napnál a COALESCE a hibás záró napot venné, a webes
+ * `programZaroNapja` viszont a kezdő napra esik vissza — az OR-alak ugyanazt
+ * adja (NULL záró napnál is a `datum` dönt).
+ *
+ * 2026-09-05 (P3-utómunka javító kör — MI VOLT A HIBA): a KORÁBBI években
+ * indult ISMÉTLŐDŐ sorozatot (novemberben indult heti bibliaóra) az év-szűrő
+ * egyik alakja sem hozta, így januártól egyszerűen ELTŰNT az asztali kezdőlapról.
+ * A web a `getProgramsForYear` MÁSODIK lekérdezésével hozza őket (PR-20,
+ * 2026-08-02: `ismetlodes_tipus IS NOT NULL`, legfeljebb 5 évre vissza) — ezt a
+ * desktop eddig nem tükrözte. Itt ugyanaz a szabály az OR harmadik ága
+ * (`?4` = az év eleje mínusz 5 év). A sorozat záró napját (`ismetlodes_vege`)
+ * NEM itt, hanem a kibontó vágja (a weben is). Az év végén a kezdőlap a
+ * következő évet is lekéri, ezért ugyanaz a sor KÉT lekérdezésből jöhet — a
+ * kezdőlap id szerint egyszer tartja meg (a webes `egyszer` Map tükre).
+ */
 export async function getLocalPrograms(
   userId: string,
   year?: number,
@@ -6274,18 +6332,17 @@ export async function getLocalPrograms(
   const profile = await getLocalOwnProfile(userId)
   if (!profile?.congregation_id) return []
   const targetYear = year ?? new Date().getFullYear()
-  return dbSelect<ProgramLocalRow>(
-    `SELECT id, congregation_id, cim, datum, datum_vege, ido_kezdes, ido_befejezes,
-            helyszin, tipus, prioritas, ismetlodes_tipus, egyedi_tipus_nev, egyedi_emoji,
-            megjegyzes, teljesitett, teljesites_datum, letrehozta_id, letrehozta_nev,
-            leiras, szin, revision, created_at, updated_at
+  const rows = await dbSelect<ProgramLocalRow>(
+    `SELECT ${PROGRAM_LOCAL_OSZLOPOK}
        FROM gyulekezeti_programok_local
       WHERE congregation_id = ?1
-        AND datum >= ?2
         AND datum <= ?3
+        AND (datum_vege >= ?2 OR datum >= ?2
+             OR (ismetlodes_tipus IS NOT NULL AND datum >= ?4))
       ORDER BY datum DESC, COALESCE(ido_kezdes, '00:00') DESC`,
-    [profile.congregation_id, `${targetYear}-01-01`, `${targetYear}-12-31`],
+    [profile.congregation_id, `${targetYear}-01-01`, `${targetYear}-12-31`, `${targetYear - 5}-01-01`],
   )
+  return rows.map(normalizaltProgramSor)
 }
 
 /** Utolsó programok-pull ISO ideje. */

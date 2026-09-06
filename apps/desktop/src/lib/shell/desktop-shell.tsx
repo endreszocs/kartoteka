@@ -96,6 +96,7 @@ import { getDesktopSupabase } from '../supabase'
 import { clearLastUser, getDesktopUser } from '../desktop-user'
 import { clearPin, clearRememberOffline } from '../auth-pin'
 import { getDbStatus } from '../local-db'
+import { stopAllWriteSyncs } from '../write-sync-registry'
 import {
   getLocalOwnCongregation,
   getLocalOwnProfile,
@@ -299,6 +300,10 @@ export function DesktopShell({ children }: DesktopShellProps) {
     }
     clearRememberOffline()
     clearLastUser()
+    // 2026-09-05 (P3-utómunka): az előző felhasználó push-erei (poll + online
+    // listener + összevonó időzítő) NEM futhatnak tovább a következő belépő
+    // alatt — a helyi függő sorokat nem a felhasználó, hanem a gép tárolja.
+    stopAllWriteSyncs()
     const supabase = getDesktopSupabase()
     await supabase.auth.signOut()
     navigate('/elso-inditas', { replace: true })
