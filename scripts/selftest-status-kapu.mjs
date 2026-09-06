@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * STÁTUSZ-KAPU önellenőrzés (2026-09-04, P0·2).
+ * STÁTUSZ-KAPU önellenőrzés (2026-09-04, P0·2 — ÚJRAÍRVA 2026-09-06).
  *
  * Mit véd:
  *   - `apps/web/lib/auth/effective-access.ts` — a származtatott jogok
@@ -12,24 +12,44 @@
  * MIÉRT VAN EZ A TESZT
  * ════════════════════════════════════════════════════════════════════════════
  * A 2026-09-03-i védelmi felülvizsgálat P0·2 találata: a származtatott jogok
- * KIZÁRÓLAG a `profiles.role` értékéből jöttek, `profiles.status` nélkül:
- *
- *     const admin = isAdminRole(role, user.email)
- *
- * A státusz-kapu csak a `(dashboard)/layout.tsx`-ben élt — az viszont
- * OLDAL-renderelést kapuz, NEM szerver-akciót. A Next.js szerver-akció önálló
+ * KIZÁRÓLAG a `profiles.role` értékéből jöttek, `profiles.status` nélkül. A
+ * státusz-kapu csak a `(dashboard)/layout.tsx`-ben élt — az viszont OLDAL-
+ * renderelést kapuz, NEM szerver-akciót. A Next.js szerver-akció önálló
  * POST-végpont: a layout soha nem fut le előtte. Egy `status='pending'` profil
  * tehát a teljes `/admin` szerver-akció felületet elérte.
  *
- * Ez a hiba azért különösen visszaeső fajta, mert a javított sor HOSSZABB és
- * „fölöslegesnek" néz ki: egy későbbi refaktorban kézenfekvő visszaírni az
- * egyszerűbb alakra. `access.admin`-t 74 hely olvassa, `egyhazkeruletiAdmin`-t
- * 41 — ha a kapu a keletkezésnél elvész, mind a 115 helyen elvész.
+ * `access.admin`-t 74 hely olvassa, `egyhazkeruletiAdmin`-t 41 — ha a kapu a
+ * keletkezésnél elvész, mind a 115 helyen elvész.
  *
- * MINDEN itteni asszert MUTÁNS-ELLENŐRZÉSSEL fut: eljátsszuk a RÉGI, hibás
- * alakot a MAI forrásból, és bizonyítjuk, hogy az őrszem BUKNA rá. Enélkül az
- * őrszem vak. (A „régi világ" szándékosan a mai forrásból áll elő, nem
- * `git show HEAD:`-ből — az a saját commitjától bukna.)
+ * ════════════════════════════════════════════════════════════════════════════
+ * ⛔ MIÉRT LETT ÚJRAÍRVA (2026-09-06) — A RÉGI VÁLTOZAT VAK VOLT
+ * ════════════════════════════════════════════════════════════════════════════
+ * Egy utóellenőrzés négy konkrét lyukat mért ki az ELSŐ változatban:
+ *
+ *  1. ⛔ A „mutáns-ellenőrzés" TAUTOLÓGIA volt. A mutáns egy olyan cserét
+ *     végzett, ami PONTOSAN azt a szövegrészt (a `statusActive &&` előtagot)
+ *     törölte, amit az asszertek kötelezően megköveteltek. Logikailag nem
+ *     tudott elbukni, tehát semmit nem bizonyított a forrásról.
+ *
+ *  2. ⛔ A regexek ELŐTAGRA illesztettek, nem a teljes kifejezésre. Ezért
+ *     `const admin = statusActive && isAdminRole(role, user.email) || kivetel`
+ *     ZÖLDEN átment: a kapu ott van, csak épp egy `||` megkerüli.
+ *
+ *  3. ⛔ A `statusActive` levezetésének regexe nem volt sorvégre zárva:
+ *     `const statusActive = master || profile?.status === 'active' || true`
+ *     mind a 10 asszertet átengedte — pedig ez a javítás EGYETLEN teherhordó sora.
+ *
+ *  4. ⛔ A második védelmi vonal asszertje csak a FELTÉTEL SZÖVEGÉT mérte.
+ *     A `throw` helyére írt `console.warn` — vagy egy üres `{}` törzs —
+ *     zölden átment.
+ *
+ * A MOSTANI FELÉPÍTÉS ezt szerkezetileg zárja ki:
+ *   · a vizsgálat TISZTA FÜGGVÉNY (`vizsgal`), ami forrás-párost kap és
+ *     hibalistát ad — nincs globális állapot, amin egy asszert „elcsúszhat";
+ *   · minden asszert TELJES kifejezést hasonlít össze, nem előtagot;
+ *   · a mutánsok VALÓDI, elképzelhető visszaesések (nem a saját literáljuk
+ *     törlése), és mindegyiktől MEGKÖVETELJÜK, hogy legalább egy asszertet
+ *     megbuktasson. Ha egy mutáns túléli, EZ A TESZT BUKIK — mert akkor vak.
  *
  * Futtatás:  node scripts/selftest-status-kapu.mjs
  */
@@ -53,9 +73,9 @@ const ok = (msg) => console.log(`OK:   ${msg}`)
 /**
  * Kommentek eltávolítása: blokk-kommentek + a csak-kommentből álló sorok.
  *
- * MIÉRT KELL: a javítás dokumentációja SZÓ SZERINT idézi a régi hibás sort
- * (`const admin = isAdminRole(role, user.email)`), és egy naiv regex arra is
- * ráillene — az őrszem így akkor is „hibát" jelezne, amikor a kód helyes.
+ * MIÉRT KELL: ez a fájl és a javítás docblockja SZÓ SZERINT idézi a régi hibás
+ * sort (`const admin = isAdminRole(role, user.email)`), és egy naiv illesztés
+ * arra is ráillene — az őrszem így akkor is „hibát" jelezne, amikor a kód helyes.
  */
 function kommentNelkul(forras) {
   return forras
@@ -65,154 +85,229 @@ function kommentNelkul(forras) {
     .join('\n')
 }
 
-const effectiveNyers = fs.readFileSync(EFFECTIVE, 'utf8')
-const effective = kommentNelkul(effectiveNyers)
-const adminAccess = kommentNelkul(fs.readFileSync(ADMIN_ACCESS, 'utf8'))
+/**
+ * Egy `const <nev> = <kifejezes>` értékadás JOBB OLDALA, a sor VÉGÉIG.
+ *
+ * ⚠️ EZ A LÉNYEG a 2. és 3. lyuk ellen: a sor végéig olvasunk, tehát a
+ * kifejezéshez ragasztott `|| kivetel` vagy `|| true` NEM tud elbújni.
+ * `null`, ha nincs ilyen értékadás.
+ */
+function ertekadasJobbOldala(forras, nev) {
+  const m = forras.match(new RegExp(`^[ \\t]*const\\s+${nev}\\s*=\\s*(.+?)[ \\t]*$`, 'm'))
+  return m ? m[1].replace(/\s+/g, ' ').trim() : null
+}
 
-// ════════════════════════════════════════════════════════════════════════════
-// 1. A statusActive levezetése helyes-e
-// ════════════════════════════════════════════════════════════════════════════
-//
-// Két dolognak kell teljesülnie egyszerre:
-//   (a) a profil státusza legyen 'active',
-//   (b) a fő rendszergazda legyen kivétel (különben egy elrontott saját profil
-//       kizárná a rendszerből azt, aki egyedül tudná megjavítani — ugyanaz a
-//       kivétel, ami a (dashboard)/layout.tsx-ben és a (setup)/layout.tsx-ben
-//       is él).
-
-const STATUS_ACTIVE_RE = /const\s+statusActive\s*=\s*master\s*\|\|\s*profile\?\.status\s*===\s*'active'/
-
-if (STATUS_ACTIVE_RE.test(effective)) {
-  ok('a statusActive a profil státuszából áll elő, a master kivételével')
-} else {
-  fail(
-    'a statusActive levezetése hiányzik vagy megváltozott. ' +
-      "Elvárt alak: const statusActive = master || profile?.status === 'active'",
-  )
+/** A `{ … }` blokk kiolvasása egy adott indextől, zárójel-számlálással. */
+function blokkTorzse(forras, kezdoIndex) {
+  const nyit = forras.indexOf('{', kezdoIndex)
+  if (nyit === -1) return ''
+  let melyseg = 0
+  for (let i = nyit; i < forras.length; i += 1) {
+    if (forras[i] === '{') melyseg += 1
+    else if (forras[i] === '}') {
+      melyseg -= 1
+      if (melyseg === 0) return forras.slice(nyit, i + 1)
+    }
+  }
+  return forras.slice(nyit)
 }
 
 // ════════════════════════════════════════════════════════════════════════════
-// 2. MINDEN származtatott jog a kapun keresztül keletkezik
+// A VÁRT ALAKOK — pontos egyezésre, nem előtagra
 // ════════════════════════════════════════════════════════════════════════════
 
-const KAPUZOTT_JOGOK = [
-  { nev: 'admin', re: /const\s+admin\s*=\s*statusActive\s*&&\s*isAdminRole\(/ },
+const VART_STATUS_ACTIVE = "master || profile?.status === 'active'"
+
+const VART_JOGOK = [
+  { nev: 'admin', kifejezes: 'statusActive && isAdminRole(role, user.email)' },
   {
     nev: 'egyhazkeruletiAdmin',
-    re: /const\s+egyhazkeruletiAdmin\s*=\s*statusActive\s*&&\s*isEgyhazkeruletiAdminRole\(/,
+    kifejezes: 'statusActive && isEgyhazkeruletiAdminRole(role, user.email)',
   },
-  { nev: 'esperes', re: /const\s+esperes\s*=\s*statusActive\s*&&\s*isEsperesRole\(/ },
-  { nev: 'konyvelo', re: /const\s+konyvelo\s*=\s*statusActive\s*&&\s*isKonyveloRole\(/ },
-  { nev: 'szamvevo', re: /const\s+szamvevo\s*=\s*statusActive\s*&&\s*isSzamvevoRole\(/ },
+  { nev: 'esperes', kifejezes: 'statusActive && isEsperesRole(role, user.email)' },
+  { nev: 'konyvelo', kifejezes: 'statusActive && isKonyveloRole(role)' },
+  { nev: 'szamvevo', kifejezes: 'statusActive && isSzamvevoRole(role)' },
 ]
 
-for (const { nev, re } of KAPUZOTT_JOGOK) {
-  if (re.test(effective)) {
-    ok(`a(z) ${nev} jog a statusActive kapun keresztül keletkezik`)
+/**
+ * A TELJES VIZSGÁLAT, tiszta függvényként.
+ *
+ * @returns {string[]} a megsértett szabályok kódjai (üres tömb = minden rendben)
+ *
+ * MIÉRT TISZTA FÜGGVÉNY: így PONTOSAN ugyanaz a vizsgálat fut a valódi
+ * forráson és minden mutánson. A régi változat hibája részben az volt, hogy a
+ * mutáns-ág külön, gyengébb logikát futtatott.
+ */
+function vizsgal(effective, adminAccess) {
+  const hibak = []
+
+  // (1) A kapu levezetése PONTOSAN a várt alak — se több, se kevesebb.
+  const statusActive = ertekadasJobbOldala(effective, 'statusActive')
+  if (statusActive !== VART_STATUS_ACTIVE) {
+    hibak.push('KAPU_LEVEZETES')
+  }
+
+  // (2) Mind az öt jog PONTOSAN a kapuzott alak. A sor végéig hasonlítunk,
+  //     tehát a ragasztott `|| kivetel` is kiderül.
+  for (const { nev, kifejezes } of VART_JOGOK) {
+    if (ertekadasJobbOldala(effective, nev) !== kifejezes) {
+      hibak.push(`JOG_${nev}`)
+    }
+  }
+
+  // (3) A `role` NEM eshet el a kaputól — a /pending oldal abból mutatja meg,
+  //     milyen szerepkört kért a felhasználó.
+  const role = ertekadasJobbOldala(effective, 'role')
+  if (!role || !role.includes('hasPrimaryRole ? profile.role')) {
+    hibak.push('ROLE_LEVEZETES')
+  }
+
+  // (4) A kontextus KIADJA a mezőt — típusban, tartalék-objektumban és a
+  //     tényleges visszatérésben egyaránt.
+  if (!/statusActive:\s*boolean/.test(effective)) hibak.push('TIPUS')
+  if (!/statusActive:\s*false/.test(effective)) hibak.push('TARTALEK_FAIL_CLOSED')
+
+  //     A visszatérési objektum a kaput ÉS mind az öt jogot továbbadja.
+  //     (A régi változat csak a `statusActive`-ot mérte itt.)
+  for (const mezo of ['statusActive', ...VART_JOGOK.map((j) => j.nev)]) {
+    if (!new RegExp(`^\\s{4}${mezo},\\s*$`, 'm').test(effective)) {
+      hibak.push(`VISSZATERES_${mezo}`)
+    }
+  }
+
+  // (5) MÁSODIK VÉDELMI VONAL: nem elég, hogy ott a feltétel — DOBNIA is kell.
+  const feltetelIdx = adminAccess.search(/!access\.master\s*&&\s*!access\.statusActive/)
+  if (feltetelIdx === -1) {
+    hibak.push('MASODIK_VONAL_FELTETEL')
   } else {
-    fail(
-      `a(z) ${nev} jog NEM a statusActive kapun keresztül keletkezik. ` +
-        'Egy nem aktív (pending/deleted) profil így újra jogot kapna a szerver-akciókon.',
-    )
+    const torzs = blokkTorzse(adminAccess, feltetelIdx)
+    if (!/throw\s+new\s+Error\s*\(/.test(torzs)) {
+      hibak.push('MASODIK_VONAL_NEM_DOB')
+    }
+  }
+
+  return hibak
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// 1. A VALÓDI FORRÁS
+// ════════════════════════════════════════════════════════════════════════════
+
+const effectiveNyers = fs.readFileSync(EFFECTIVE, 'utf8')
+const adminAccessNyers = fs.readFileSync(ADMIN_ACCESS, 'utf8')
+const effective = kommentNelkul(effectiveNyers)
+const adminAccess = kommentNelkul(adminAccessNyers)
+
+const eloHibak = vizsgal(effective, adminAccess)
+
+if (eloHibak.length === 0) {
+  ok('a valódi forrás mind a 13 szabálynak megfelel')
+  ok('  · a kapu levezetése pontosan: ' + VART_STATUS_ACTIVE)
+  ok('  · mind az 5 jog a kapun keresztül keletkezik, ragasztott kiskapu nélkül')
+  ok('  · a role változatlanul a profilból jön (a /pending oldal működik)')
+  ok('  · a kapu és mind az 5 jog átjut a visszatérési objektumon')
+  ok('  · a második védelmi vonal nem csak vizsgál, hanem DOB is')
+} else {
+  for (const h of eloHibak) {
+    fail(`megsértett szabály: ${h}`)
   }
 }
 
 // ════════════════════════════════════════════════════════════════════════════
-// 3. MUTÁNS-ELLENŐRZÉS — bizonyítjuk, hogy a fenti asszertek NEM vakok
+// 2. MUTÁNSOK — VALÓDI, elképzelhető visszaesések
 // ════════════════════════════════════════════════════════════════════════════
 //
-// A régi, hibás világot a MAI forrásból állítjuk elő: kivesszük a kaput, és
-// megköveteljük, hogy MINDEN kapuzott jog asszertje elbukjon rá. Ha egy
-// asszert a mutánson is átmenne, az azt jelentené, hogy nem is a kaput méri.
-
-const mutans = effective.replace(/statusActive\s*&&\s*/g, '')
-
-let mutansTullelt = []
-for (const { nev, re } of KAPUZOTT_JOGOK) {
-  if (re.test(mutans)) mutansTullelt.push(nev)
-}
-
-if (mutansTullelt.length === 0) {
-  ok('mutáns-ellenőrzés: a kapu eltávolítása MINDEN asszertet megbuktat (az őrszem lát)')
-} else {
-  fail(
-    'MUTÁNS TÚLÉLTE: a kapu eltávolítása után is átment ezeknek az asszertje: ' +
-      `${mutansTullelt.join(', ')}. Az őrszem ezekre VAK, javítsd a regexet.`,
-  )
-}
-
-// A statusActive-levezetés asszertje is legyen mutáns-érzékeny.
-const mutansLevezetes = effective.replace(
-  /const\s+statusActive\s*=\s*master\s*\|\|\s*profile\?\.status\s*===\s*'active'/,
-  'const statusActive = true',
-)
-if (STATUS_ACTIVE_RE.test(mutansLevezetes)) {
-  fail('MUTÁNS TÚLÉLTE: a statusActive levezetésének asszertje nem érzékeny a törzs cseréjére.')
-} else {
-  ok('mutáns-ellenőrzés: a statusActive levezetésének asszertje érzékeny')
-}
-
-// ════════════════════════════════════════════════════════════════════════════
-// 4. A kontextus KIADJA a statusActive mezőt (különben a 2. vonal nem tud rá építeni)
-// ════════════════════════════════════════════════════════════════════════════
-
-if (/statusActive:\s*boolean/.test(effective)) {
-  ok('a statusActive szerepel az EffectiveAccessContext típusában')
-} else {
-  fail('a statusActive hiányzik az EffectiveAccessContext típusából')
-}
-
-if (/statusActive:\s*false/.test(effective)) {
-  ok('a bejelentkezés nélküli tartalék kontextus statusActive: false (fail-closed)')
-} else {
-  fail(
-    'a bejelentkezés nélküli tartalék kontextusból hiányzik a statusActive: false. ' +
-      'Fail-closed alapérték nélkül a hiányzó mező undefined lenne — az pedig hamis, de véletlenül.',
-  )
-}
-
-// A visszaadott objektumban is ott kell lennie, nem csak a típusban.
-if (/\n\s{4}statusActive,\s*\n/.test(effective)) {
-  ok('a fő visszatérési objektum átadja a statusActive mezőt')
-} else {
-  fail(
-    'a fő visszatérési objektumból hiányzik a statusActive. A típus így hazudna: ' +
-      'a mező undefined lenne futásidőben.',
-  )
-}
-
-// ════════════════════════════════════════════════════════════════════════════
-// 5. MÁSODIK VÉDELMI VONAL — requireAdminAccess
-// ════════════════════════════════════════════════════════════════════════════
+// ⚠️ EZ A RÉSZ DÖNTI EL, HOGY AZ ŐRSZEM LÁT-E. Minden mutáns egy olyan
+// változtatás, amit egy jóhiszemű refaktor VAGY egy rosszhiszemű kiskapu
+// tényleg elkövethet. Ha BÁRMELYIK túléli, ez a teszt BUKIK — mert akkor
+// pontosan azon a ponton vak.
 //
-// MIÉRT KELL KÉT VONAL: a központi kapu ma elég. De ha valaki később lazít
-// rajta (pl. „csak erre az egy folyamatra"), ez a kapu még áll. A hibaüzenete
-// ráadásul megmondja, MIÉRT nincs jog — a néma „nincs jogosultsága" helyett.
+// A régi változat mutánsa (`statusActive && ` törlése) azért volt értéktelen,
+// mert épp a saját asszertjének a literálját törölte: tautológia volt.
 
-if (/!access\.master\s*&&\s*!access\.statusActive/.test(adminAccess)) {
-  ok('a requireAdminAccess önálló státusz-kaput is tartalmaz (második vonal)')
-} else {
-  fail(
-    'a requireAdminAccess-ből hiányzik az önálló státusz-kapu. ' +
-      'A védelem így egyetlen ponton állna.',
-  )
+const MUTANSOK = [
+  {
+    nev: 'a kapu eltűnik az admin jogról (a JAVÍTÁS ELŐTTI alak)',
+    e: (s) =>
+      s.replace(
+        'const admin = statusActive && isAdminRole(role, user.email)',
+        'const admin = isAdminRole(role, user.email)',
+      ),
+    a: (s) => s,
+  },
+  {
+    nev: 'a kapu megmarad, de egy ragasztott || megkerüli',
+    e: (s) =>
+      s.replace(
+        'const admin = statusActive && isAdminRole(role, user.email)',
+        'const admin = statusActive && isAdminRole(role, user.email) || sajatKivetel',
+      ),
+    a: (s) => s,
+  },
+  {
+    nev: 'a kapu levezetése kitágul (|| true a végén)',
+    e: (s) =>
+      s.replace(
+        "const statusActive = master || profile?.status === 'active'",
+        "const statusActive = master || profile?.status === 'active' || true",
+      ),
+    a: (s) => s,
+  },
+  {
+    nev: 'a kapu levezetése elveszíti a státusz-feltételt',
+    e: (s) =>
+      s.replace(
+        "const statusActive = master || profile?.status === 'active'",
+        'const statusActive = true',
+      ),
+    a: (s) => s,
+  },
+  {
+    nev: 'a második védelmi vonal figyelmeztet, de nem dob',
+    e: (s) => s,
+    a: (s) =>
+      s.replace(/throw\s+new\s+Error\s*\(\s*\n?\s*'A fiók még nincs jóváhagyva/, "console.warn('A fiók még nincs jóváhagyva"),
+  },
+  {
+    nev: 'a visszatérési objektum elejti az admin mezőt',
+    e: (s) => s.replace(/^\s{4}admin,\s*$/m, '    admin: false,'),
+    a: (s) => s,
+  },
+  {
+    nev: 'a konyvelo jog kikerül a kapu alól',
+    e: (s) =>
+      s.replace(
+        'const konyvelo = statusActive && isKonyveloRole(role)',
+        'const konyvelo = isKonyveloRole(role)',
+      ),
+    a: (s) => s,
+  },
+]
+
+let vakPontok = []
+for (const m of MUTANSOK) {
+  const mutansE = m.e(effective)
+  const mutansA = m.a(adminAccess)
+
+  // Épség-ellenőrzés: ha a mutáns nem változtatott semmit, az illesztése
+  // elavult — akkor NEM a forrásról mond valamit, hanem a saját hibája.
+  if (mutansE === effective && mutansA === adminAccess) {
+    fail(`a(z) „${m.nev}" mutáns NEM VÁLTOZTATOTT semmit — elavult az illesztése, javítsd`)
+    continue
+  }
+
+  const hibak = vizsgal(mutansE, mutansA)
+  if (hibak.length === 0) {
+    vakPontok.push(m.nev)
+  }
 }
 
-// ════════════════════════════════════════════════════════════════════════════
-// 6. A `role` NEM eshet el a kaputól
-// ════════════════════════════════════════════════════════════════════════════
-//
-// A /pending oldal abból mutatja meg, milyen szerepkört kért a felhasználó.
-// Ha a `role`-t is kapuznánk, a jóváhagyásra váró lelkész azt látná, hogy
-// nincs is szerepköre — és a támogatás sem tudná, mit hagyjon jóvá.
-
-if (/const\s+role\s*=\s*\(hasPrimaryRole\s*\?\s*profile\.role\s*:\s*'lelkesz'\)/.test(effective)) {
-  ok('a role változatlanul a profilból jön — a kapu csak a JOGOT veszi el, az igényt nem')
+if (vakPontok.length === 0) {
+  ok(`mutáns-ellenőrzés: mind a ${MUTANSOK.length} visszaesést elkapja (az őrszem LÁT)`)
 } else {
-  fail(
-    'a role levezetése megváltozott. Ha a role is a statusActive kapu mögé került, ' +
-      'a /pending oldal nem tudja megmutatni, milyen szerepkört kért a felhasználó.',
-  )
+  for (const v of vakPontok) {
+    fail(`MUTÁNS TÚLÉLTE — az őrszem VAK erre: „${v}"`)
+  }
 }
 
 console.log('')

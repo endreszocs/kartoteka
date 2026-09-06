@@ -14,7 +14,7 @@ const AI_CONFIG = {
         {
             name:     'OpenRouter',
             endpoint: 'https://openrouter.ai/api/v1/chat/completions',
-            apiKey:   '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',
+            apiKey:   '<OPENROUTER_API_KEY>',
             models: [
                 'minimax/minimax-m2.5:free',        // ajánlott 1. – erős, többnyelvű
                 'stepfun/step-3.5-flash:free',      // ajánlott 2. – gyors, megbízható
@@ -24,7 +24,7 @@ const AI_CONFIG = {
         {
             name:     'Groq',
             endpoint: 'https://api.groq.com/openai/v1/chat/completions',
-            apiKey:   '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',
+            apiKey:   '<GROQ_API_KEY>',
             models: [
                 'llama-3.3-70b-versatile',   // erős, gyors Groq-on
                 'llama-3.1-8b-instant',      // ultragyors, kisebb modell
@@ -33,7 +33,7 @@ const AI_CONFIG = {
         {
             name:     'Gemini',
             endpoint: 'https://generativelanguage.googleapis.com/v1beta/openai/chat/completions',
-            apiKey:   'AIzaSyBEyYHs0UsucCqYQEca5S1Mt2R6ELbolBQ',
+            apiKey:   '<GEMINI_API_KEY>',
             models: [
                 'gemini-2.0-flash',   // leggyorsabb Gemini
                 'gemini-1.5-flash',   // tartalék

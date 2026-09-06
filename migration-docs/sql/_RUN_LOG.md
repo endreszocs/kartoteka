@@ -57,6 +57,28 @@ Mind a 4 fájl ebben a sorrendben futott le (Endre, 2026-09-05), az ellenőrző 
        „ozv.kovacsnagy"), `naptar_szemely_alap/nevnapok` (anon NEM, authenticated IGEN),
        `lelkeszi_naptar_feed` V2 csak service_role, névnap-egyeztetés próba (Anna Mária → Anna).
 
+- [x] 2026-09-05 — **`2026-09-05-naptar-feed-kapuk.sql`** ✅ LEFUTOTT
+       Rács 18/18 ✅: `public_calendar_feed` V4 — `c.status='active'` kapu, a MAGÁN típusok
+       kizárása MEGMARADT (V3 vívmány), a `megjegyzes` ÉS a `leiras` mostantól CSAK a
+       `calendar_feed_reszletes` opt-innel megy ki (eddig az adatbázis feltétel nélkül kiadta,
+       a szűrés csak az app-rétegben élt → PostgREST-en megkerülhető volt).
+       `lelkeszi_naptar_feed` V3 — `profiles.status='active'` kapu + fail-closed fallback.
+       Mérés: 0 gyülekezetnél áll BE a részletes feed · 0 gyülekezet esik ki a státusz-kaputól ·
+       0 új token-kiesés · a fallback ág BIZONYÍTOTTAN HALOTT KÓD (0 db `scope=congregation`
+       + `scope_id IS NULL` sor, a CHECK áll).
+
+       ⛔⛔ **A `2026-09-05-naptar-anyakonyv-szabadsag-nevnap.sql` ETTŐL KEZDVE NEM
+       FUTTATHATÓ ÚJRA VÁLTOZATLANUL.** A benne lévő `CREATE OR REPLACE` a két feedet
+       visszavinné V3/V2-re, és NÉMÁN visszavenné a fenti négy kaput — miközben a saját
+       15/15-ös rácsa VÉGIG ZÖLD MARADNA, tehát semmi nem figyelmeztetne rá.
+       Ha mégis újra kell futtatni: UTÁNA a `2026-09-05-naptar-feed-kapuk.sql`-t is futtasd le.
+
+       ⏳ Kísérő app-oldali teendő: `apps/web/lib/auth/effective-access.ts:509-511` ugyanazt a
+       szűretlen `profiles.congregation_id` fallbackot használja a lelkészi token KIADÁSAKOR,
+       mint amit a feedben most bezártunk. Ma ártalmatlan (a fallback halott kód), de ha a
+       `profile_roles_scope_id_check` valaha megszűnik, az app kiadhat olyan linket, amit a
+       feed elutasít.
+
 - [x] 2026-09-05 — **`2026-09-05-ertesitesek-felado.sql`** ✅ LEFUTOTT
        Rács 10/10 ✅: feladó-oszlopok + CHECK, levezető függvény + INSERT-trigger, 0 feladó
        nélküli sor, eloszlás: rendszergazda=76 · rendszer=12 · felhasznalo=1; index; írásvédelmi
@@ -767,3 +789,31 @@ Eddig nem volt katasztrofális PITR-rollback. Ha jövőben szükség lesz, ide j
 - **DIAGNOSTICS P2-11**: SECURITY DEFINER search_path → `2026-05-17-security-definer-search-path-pin.sql`
 - **DIAGNOSTICS P2-12**: a RPC-installer migrációk BEGIN/COMMIT csomagolása — új migrációknál betartani
 - [ ] 2026-09-05-szemelyi-szam-kulon-tabla.sql — PENDING (a hivatalos személyi szám külön, szűkebb hozzáférésű táblába kerül; a szemely.cnp ÉRINTETLEN marad)
+
+---
+
+## ❓ ELLENŐRIZENDŐ / 🔴 PENDING — függvény-jogtisztítás lánc (2026-09-05b)
+
+- [?] **`2026-09-05-token-hook-p0-zaras.sql`** — ÁLLAPOT ISMERETLEN (eddig NEM volt
+      bejegyzése ebben a naplóban, pedig a jogtisztítás-lánc hivatkozik rá).
+      Szándéka: a `public.custom_access_token_hook` lezárása anon / authenticated /
+      PUBLIC felé, `supabase_auth_admin` megtartásával.
+      ⚠️ Hogy élesben LEFUTOTT-e, azt a `docs/2026-09-05b-jogtisztitas-1-elomeres.sql`
+      **22. sora MÉRI** — a migrációs fájl önmagában NEM bizonyíték.
+      A `2026-09-05b-jogtisztitas-2-migracio.sql` mindkét esetben lezárja (ha már
+      zárva volt, no-op), tehát nem blokkolja a láncot.
+
+- [ ] **`docs/2026-09-05b-jogtisztitas-1-elomeres.sql`** — PENDING (csak olvasó előmérés,
+      NULLA adatkockázat). Ez adja meg a migráció összes bemenetét: a 15. sor a
+      megállító kaput jelzi előre, a 26. sor a `v_atmentendo_szerepek` döntést, a
+      27–28. sor pedig azt, mely rutinok kapnának visszafordíthatatlan explicit grantot.
+
+- [ ] **`docs/2026-09-05b-jogtisztitas-1b-acl-mentes.sql`** — PENDING (csak olvasó
+      ACL-pillanatkép = A MENTÉS). CSV-be kell menteni a migráció ELŐTT.
+      ⚠️ A sorait EGÉSZBEN (REVOKE + GRANT-ok) kell visszajátszani.
+
+- [ ] **`2026-09-05b-jogtisztitas-2-migracio.sql`** — PENDING (a migráció).
+      Csak jogokat ír. Előfeltétel: a fenti két olvasó fájl lefutott, a mentés
+      megvan, a 15. sor üres, és a `v_atmentendo_szerepek` / `v_tudomasul_vett_szerepek`
+      tömbök az előmérés 26. sora alapján ki vannak töltve.
+      Futás után ide kell bevezetni a záró rács **0., 1., 5. és 8. sorát**.

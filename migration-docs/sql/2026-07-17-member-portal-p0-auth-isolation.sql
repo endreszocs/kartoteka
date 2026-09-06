@@ -1,3 +1,28 @@
+-- ╔══════════════════════════════════════════════════════════════════════════╗
+-- ║  ⛔ EZT A FÁJLT NE FUTTASD ÚJRA — FELÜLÍRT FÜGGVÉNY-TÖRZSET HORDOZ       ║
+-- ╚══════════════════════════════════════════════════════════════════════════╝
+--
+-- Ez a migráció annak idején helyes volt, és a történetet dokumentálja — de
+-- azóta biztonsági javítás írta felül az alábbi függvény(ek) törzsét. A
+-- `CREATE OR REPLACE` NEM egyirányú: ha ezt a fájlt ma bárki újrafuttatja
+-- (új környezet felállításakor, vagy egy másik hibát keresve), NÉMÁN
+-- visszaveszi a javítást. Az adatbázis nem tiltakozik, a felület nem
+-- változik, és a következő auditig senki nem veszi észre.
+--
+-- AMI ITT ELAVULT:
+--   · is_admin()
+--     kanonikus törzs: migration-docs/sql/2026-09-04-auth-p0-javitasok-1.sql
+--     ha mégis lefut: a status-kapu eltűnne
+--   · is_caller_admin_for_user_mgmt()
+--     kanonikus törzs: migration-docs/sql/2026-09-04-auth-p0-javitasok-1.sql
+--     ha mégis lefut: a felhasználókezelő RPC-család kapuja status-vakká válna
+--   · current_user_has_global_access()
+--     kanonikus törzs: migration-docs/sql/2026-08-11-globalis-hozzaferes-szukites.sql
+--     ha mégis lefut: az országos hozzáférés gerince (~50 tábla RLS-e) status-vakká válna
+--
+-- Az őrszem, ami ezt a szabályt őrzi: scripts/selftest-sql-kanonikus-torzs.mjs
+-- (a „NE FUTTASD" jelölés adja a felmentést — ezért ne töröld ezt a fejlécet).
+
 -- ============================================================================
 -- KARTOTEKA — P0 Auth/RPC izoláció a tagi portál előtt
 -- Dátum: 2026-07-17

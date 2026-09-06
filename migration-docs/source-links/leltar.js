@@ -1148,7 +1148,7 @@ window.fetchBookDataFromInput = async function() {
     const isbnRaw = document.getElementById('l-konyv-isbn').value.replace(/[^0-9X]/gi, '');
     if (isbnRaw.length < 10) { alert("Érvénytelen ISBN szám!"); return; }
     
-    const GEMINI_API_KEY = "AIzaSyB_wyFpyS2Uv1xkTLuNms5-npunIAbTeMs";
+    const GEMINI_API_KEY = "<GEMINI_API_KEY>";
     
     const btn = document.querySelector('#div-konyv-extra button[title]');
     const origHtml = btn.innerHTML;

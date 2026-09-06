@@ -1,3 +1,22 @@
+-- ╔══════════════════════════════════════════════════════════════════════════╗
+-- ║  ⛔ EZT A FÁJLT NE FUTTASD ÚJRA — FELÜLÍRT FÜGGVÉNY-TÖRZSET HORDOZ       ║
+-- ╚══════════════════════════════════════════════════════════════════════════╝
+--
+-- Ez a migráció annak idején helyes volt, és a történetet dokumentálja — de
+-- azóta biztonsági javítás írta felül az alábbi függvény(ek) törzsét. A
+-- `CREATE OR REPLACE` NEM egyirányú: ha ezt a fájlt ma bárki újrafuttatja
+-- (új környezet felállításakor, vagy egy másik hibát keresve), NÉMÁN
+-- visszaveszi a javítást. Az adatbázis nem tiltakozik, a felület nem
+-- változik, és a következő auditig senki nem veszi észre.
+--
+-- AMI ITT ELAVULT:
+--   · handle_new_user()
+--     kanonikus törzs: migration-docs/sql/2026-09-04-auth-p0-javitasok-1.sql
+--     ha mégis lefut: ⛔ P0: a regisztráló metaadata ÚJRA eldöntené a profiles.role értékét
+--
+-- Az őrszem, ami ezt a szabályt őrzi: scripts/selftest-sql-kanonikus-torzs.mjs
+-- (a „NE FUTTASD" jelölés adja a felmentést — ezért ne töröld ezt a fejlécet).
+
 -- ============================================================================
 -- BUG-FIX — auth.users → profiles automatikus szinkronizáció
 -- ============================================================================

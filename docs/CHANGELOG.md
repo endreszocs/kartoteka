@@ -21,6 +21,11 @@ Formátum (minden bejegyzés):
 A `key` mező egyedi azonosító (slug) — ez a `system_broadcasts.release_changelog_key` értéke lesz.
 Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombbal küldhetők.
 
+- **Belső: a biztonsági önellenőrzések megerősítve**: a jogosultsági kapukat őrző
+  önellenőrzések eddig átengedtek néhány visszalépést; újraírva, valódi mutáns-
+  ellenőrzéssel. Új őrszem jelzi, ha egy régi adatbázis-migráció újrafuttatása
+  visszavenné egy biztonsági javítás hatását (13 ilyen fájl megjelölve).
+
 ---
 
 ## [2026-09-05] — Utómunka: biztosabb asztali szinkron és összekapcsolás, pontosabb naptár, kíméletesebb profilkép-kezelés
@@ -96,6 +101,36 @@ Az admin felületen a még nem broadcast-olt bejegyzések "Közzététel" gombba
   mutáns-negatívokkal).
 
 ---
+
+## [2026-09-05] — A naptár-hivatkozás többé nem viszi ki a belső jegyzetet
+<!-- key: 2026-09-05-naptar-feed-kapuk -->
+<!-- category: security -->
+<!-- version: 0.9.231 -->
+<!-- targets: lelkipásztorok — a Google/Apple naptárba bekötött gyülekezeti naptár -->
+
+### 🔒 Biztonsági javítások
+
+- **A programok megjegyzése csak akkor megy ki, ha te kéred**: a gyülekezeti naptár-hivatkozás
+  (amit a Google- vagy Apple-naptáradba köthetsz be) eddig a programokhoz írt **belső
+  megjegyzést és leírást** is átadta, függetlenül attól, hogy a „részletes feed" kapcsoló be
+  volt-e kapcsolva. A szűrés csak a weboldal rétegében működött, magát az adatbázist meg
+  lehetett kerülni. Mostantól a kapu az adatbázisban van: kikapcsolt kapcsolónál a megjegyzés
+  és a leírás **el sem hagyja a rendszert**. A mérés szerint ez élesben egyetlen gyülekezetet
+  sem érintett — a kapcsoló sehol nem volt bekapcsolva.
+- **Az inaktívvá vált gyülekezet naptára lezárul**: a naptár-hivatkozás mostantól megköveteli,
+  hogy a gyülekezet aktív státuszú legyen — ugyanaz a feltétel, ami a nyilvános weboldalra is
+  vonatkozik.
+- **A lelkészi (privát) naptár szigorúbb lett**: csak aktív státuszú fiók kapja meg, és a
+  hatókör kizárólag a jóváhagyott szerepkörből jöhet. Így egy visszavont hozzáférés után a
+  névsor nem áramlik tovább a telefonra kötött naptárba.
+- **A hibaüzenetek nem ragadnak be**: a naptár-hivatkozás hibaválaszai (érvénytelen vagy
+  ismeretlen link) mostantól nem gyorsítótárazhatók, tehát egy átmeneti hiba után a naptár
+  azonnal újra működik, nem csak órák múlva.
+
+### 🧹 Karbantartás
+
+- Négy régi, már nem használt szolgáltatói kulcs helyőrzőre cserélve a fejlesztői
+  segédanyagokban.
 
 ## [2026-09-05] — Asztali első indítás Google-fiókkal, újratervezett éves naptár, beszélgetés-nézetű értesítések, pontos profil
 <!-- key: 2026-09-05-desktop-naptar-ertesites-profil -->
