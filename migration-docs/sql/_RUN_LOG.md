@@ -767,3 +767,31 @@ Eddig nem volt katasztrofális PITR-rollback. Ha jövőben szükség lesz, ide j
 - **DIAGNOSTICS P2-11**: SECURITY DEFINER search_path → `2026-05-17-security-definer-search-path-pin.sql`
 - **DIAGNOSTICS P2-12**: a RPC-installer migrációk BEGIN/COMMIT csomagolása — új migrációknál betartani
 - [ ] 2026-09-05-szemelyi-szam-kulon-tabla.sql — PENDING (a hivatalos személyi szám külön, szűkebb hozzáférésű táblába kerül; a szemely.cnp ÉRINTETLEN marad)
+
+---
+
+## ❓ ELLENŐRIZENDŐ / 🔴 PENDING — függvény-jogtisztítás lánc (2026-09-05b)
+
+- [?] **`2026-09-05-token-hook-p0-zaras.sql`** — ÁLLAPOT ISMERETLEN (eddig NEM volt
+      bejegyzése ebben a naplóban, pedig a jogtisztítás-lánc hivatkozik rá).
+      Szándéka: a `public.custom_access_token_hook` lezárása anon / authenticated /
+      PUBLIC felé, `supabase_auth_admin` megtartásával.
+      ⚠️ Hogy élesben LEFUTOTT-e, azt a `docs/2026-09-05b-jogtisztitas-1-elomeres.sql`
+      **22. sora MÉRI** — a migrációs fájl önmagában NEM bizonyíték.
+      A `2026-09-05b-jogtisztitas-2-migracio.sql` mindkét esetben lezárja (ha már
+      zárva volt, no-op), tehát nem blokkolja a láncot.
+
+- [ ] **`docs/2026-09-05b-jogtisztitas-1-elomeres.sql`** — PENDING (csak olvasó előmérés,
+      NULLA adatkockázat). Ez adja meg a migráció összes bemenetét: a 15. sor a
+      megállító kaput jelzi előre, a 26. sor a `v_atmentendo_szerepek` döntést, a
+      27–28. sor pedig azt, mely rutinok kapnának visszafordíthatatlan explicit grantot.
+
+- [ ] **`docs/2026-09-05b-jogtisztitas-1b-acl-mentes.sql`** — PENDING (csak olvasó
+      ACL-pillanatkép = A MENTÉS). CSV-be kell menteni a migráció ELŐTT.
+      ⚠️ A sorait EGÉSZBEN (REVOKE + GRANT-ok) kell visszajátszani.
+
+- [ ] **`2026-09-05b-jogtisztitas-2-migracio.sql`** — PENDING (a migráció).
+      Csak jogokat ír. Előfeltétel: a fenti két olvasó fájl lefutott, a mentés
+      megvan, a 15. sor üres, és a `v_atmentendo_szerepek` / `v_tudomasul_vett_szerepek`
+      tömbök az előmérés 26. sora alapján ki vannak töltve.
+      Futás után ide kell bevezetni a záró rács **0., 1., 5. és 8. sorát**.
